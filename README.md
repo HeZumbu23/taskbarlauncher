@@ -31,6 +31,16 @@ dotnet publish -c Release
 Die eigenständige `TaskbarLauncher.exe` landet unter
 `bin\Release\net8.0-windows\win-x64\publish\`.
 
+### Deploy-Skript
+
+Für die lokale Entwicklung: `deploy.ps1` beendet eine laufende Instanz,
+zieht den neuesten Stand, baut neu und startet die App wieder — alles in
+einem Schritt.
+
+```powershell
+.\deploy.ps1
+```
+
 ## Menü füllen
 
 Beim ersten Start legt die App `%AppData%\TaskbarLauncher\Menue` an. Dorthin:
