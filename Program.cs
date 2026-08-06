@@ -231,6 +231,22 @@ internal sealed class MainForm : Form
 
     private static Icon LoadAppIcon()
     {
+        // Über die eingebettete Ressource geladen (nicht per
+        // Icon.ExtractAssociatedIcon), damit die volle Auflösungsreihe aus
+        // app.ico erhalten bleibt - Windows kann sich dann je nach Kontext
+        // (Taskleiste, DPI-Skalierung, Alt-Tab, ...) die passend scharfe
+        // Größe herausholen, statt eine einzelne kleine Auflösung
+        // hochzuskalieren.
+        try
+        {
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("TaskbarLauncher.app.ico");
+            if (stream is not null) return new Icon(stream);
+        }
+        catch
+        {
+            // Fällt unten auf die weniger scharfe Variante zurück.
+        }
+
         try
         {
             return Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;

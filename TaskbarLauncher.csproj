@@ -19,4 +19,14 @@
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Zusätzlich zum Win32-Ressourcen-Icon (ApplicationIcon) auch als
+         eingebettete .NET-Ressource, damit die App zur Laufzeit die volle
+         Auflösungsreihe laden kann (siehe MainForm.LoadAppIcon) - sonst
+         liefert Icon.ExtractAssociatedIcon nur eine einzelne, kleine
+         Auflösung, die für die Taskleiste hochskaliert und dadurch
+         unscharf wird. -->
+    <EmbeddedResource Include="app.ico" />
+  </ItemGroup>
+
 </Project>
