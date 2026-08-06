@@ -1,0 +1,63 @@
+name: Auto-merge claude branches
+
+# Merges any claude/* branch straight into main whenever it's pushed.
+# No build/test gate - a clean (conflict-free) merge goes through as-is.
+# On a conflict, the merge is aborted and nothing is pushed; the workflow
+# run fails so it's visible in the Actions tab.
+
+on:
+  push:
+    branches:
+      - "claude/**"
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "claude/* branch to merge (defaults to the branch that triggered this run)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Determine branch to merge
+        id: branch
+        run: |
+          BRANCH="${{ github.event.inputs.branch }}"
+          if [ -z "$BRANCH" ]; then
+            BRANCH="${{ github.ref_name }}"
+          fi
+
+          if [[ "$BRANCH" != claude/* ]]; then
+            echo "::error::Branch '$BRANCH' does not match claude/* - refusing to auto-merge."
+            exit 1
+          fi
+
+          echo "name=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Merge into main
+        run: |
+          BRANCH="${{ steps.branch.outputs.name }}"
+          echo "Merging origin/$BRANCH into main"
+          git fetch origin "$BRANCH"
+
+          if git merge --no-edit "origin/$BRANCH"; then
+            git push origin main
+          else
+            echo "::error::Merge conflict between main and $BRANCH - aborting, nothing pushed."
+            git merge --abort
+            exit 1
+          fi
