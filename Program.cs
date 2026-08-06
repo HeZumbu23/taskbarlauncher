@@ -74,8 +74,10 @@ internal static class Program
               oder Löschen. Dort lässt sich bei Dateien auch der 3-stellige
               Schnellzugriffscode ändern (leer lassen = automatische
               Neuvergabe; ist ein Code schon vergeben, wird angezeigt an wen).
-            - "Erweiterte Ansicht" (unten im Menü) zeigt den Inhalt der
-              obersten Ordnerebene direkt im Hauptmenü statt in Untermenüs.
+            - "Erweiterte Ansicht" (unten im Menü, an/aus) zeigt statt des
+              Menüs ein großes Kachelraster (bis zu 9x9 Kacheln) - Klick auf
+              eine Ordner-Kachel navigiert im selben Fenster hinein, "Zurück"
+              geht wieder hoch.
 
             Jede Datei bekommt automatisch einen eindeutigen 3-stelligen Code
             (unsichtbar im Dateinamen als "[123]"-Suffix, im Menü ausgeblendet).
@@ -193,7 +195,7 @@ internal sealed class MainForm : Form
 
         if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == ExpandedViewHotkeyId)
         {
-            ShowMenu(forceExpanded: true);
+            TileGridForm.ShowAt(Program.MenuRoot, Cursor.Position);
             return;
         }
 
@@ -206,10 +208,21 @@ internal sealed class MainForm : Form
         base.WndProc(ref m);
     }
 
-    private void ShowMenu(bool forceExpanded = false, bool showCodeBox = false)
+    private void ShowMenu(bool showCodeBox = false)
     {
+        // Der Standardmodus "Erweiterte Ansicht" zeigt statt des normalen
+        // Menüs das Kachelraster - außer die Code-Suche (Win+Alt+Y) wurde
+        // angefordert, die bleibt an das klassische Menü gebunden (dort ist
+        // das Eingabefeld eingebettet, und von dort lässt sich der
+        // Standardmodus über die Checkbox auch wieder zurückstellen).
+        if (Settings.ExpandedView && !showCodeBox)
+        {
+            TileGridForm.ShowAt(Program.MenuRoot, Cursor.Position);
+            return;
+        }
+
         _menu?.Dispose();
-        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true, forceExpanded, showCodeBox);
+        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true, showCodeBox);
 
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
@@ -403,6 +416,13 @@ internal static class MenuFs
 
     public static bool IsVisible(FileSystemInfo fsi)
         => (fsi.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0;
+
+    /// <summary>Eine Datei wie "---" oder "---.txt" ist eine Trennlinie, kein echter Eintrag.</summary>
+    public static bool IsSeparatorFile(FileInfo file)
+    {
+        var bare = OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(file.Name));
+        return bare.Length > 0 && bare.All(c => c == '-');
+    }
 }
 
 /// <summary>
@@ -468,7 +488,7 @@ internal static class MenuBuilder
     private static readonly Font MenuFont = new("Segoe UI", 11.5f);
     private static readonly Size MenuImageSize = new(28, 28);
 
-    public static ContextMenuStrip Build(string root, bool showExit, bool forceExpanded = false, bool showCodeBox = false)
+    public static ContextMenuStrip Build(string root, bool showExit, bool showCodeBox = false)
     {
         CodeRegistry.EnsureAllAssigned(root);
 
@@ -506,19 +526,11 @@ internal static class MenuBuilder
         menu.Items.Add(CreatePasteItem(root));
         menu.Items.Add(new ToolStripSeparator());
 
-        bool expanded = forceExpanded || Settings.ExpandedView;
-        if (expanded)
-        {
-            BuildFlatItems(root, menu.Items);
-        }
+        var items = BuildItems(root, 0);
+        if (items.Length == 0)
+            menu.Items.Add(Style(new ToolStripMenuItem("(Menü-Ordner ist leer)") { Enabled = false }));
         else
-        {
-            var items = BuildItems(root, 0);
-            if (items.Length == 0)
-                menu.Items.Add(Style(new ToolStripMenuItem("(Menü-Ordner ist leer)") { Enabled = false }));
-            else
-                menu.Items.AddRange(items);
-        }
+            menu.Items.AddRange(items);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -526,10 +538,10 @@ internal static class MenuBuilder
         open.Click += (_, _) => Launcher.Open(Program.MenuRoot);
         menu.Items.Add(open);
 
-        // Zeigt/ändert den *dauerhaften* Standardmodus. Bei einem per Hotkey
-        // erzwungenen Aufruf (forceExpanded) bleibt die Checkbox daher am
-        // gespeicherten Wert, nicht am für diesen Aufruf erzwungenen.
-        var expandedView = Style(new ToolStripMenuItem("Erweiterte Ansicht (erste Ebene flach)")
+        // Steuert den *dauerhaften* Standardmodus: ist er aktiv, öffnet ein
+        // Klick auf das Taskleisten-Icon künftig das Kachelraster
+        // (TileGridForm) statt dieses klassischen Menüs.
+        var expandedView = Style(new ToolStripMenuItem("Erweiterte Ansicht (Kachelraster)")
         {
             CheckOnClick = true,
             Checked = Settings.ExpandedView
@@ -573,62 +585,6 @@ internal static class MenuBuilder
         }
 
         return [.. result];
-    }
-
-    /// <summary>
-    /// "Erweiterte Ansicht": die oberste Ebene wird direkt ins Hauptmenü
-    /// geschrieben (fette Kopfzeile je Ordner statt Untermenü). Tiefere
-    /// Ebenen bleiben normal verschachtelt.
-    /// </summary>
-    private static void BuildFlatItems(string root, ToolStripItemCollection target)
-    {
-        List<FileSystemInfo> entries;
-        try
-        {
-            entries = MenuFs.GetOrderedEntries(root);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            target.Add(Style(new ToolStripMenuItem("(kein Zugriff)") { Enabled = false }));
-            return;
-        }
-
-        if (entries.Count == 0)
-        {
-            target.Add(Style(new ToolStripMenuItem("(Menü-Ordner ist leer)") { Enabled = false }));
-            return;
-        }
-
-        foreach (var entry in entries)
-        {
-            if (entry is DirectoryInfo sub)
-            {
-                var header = Style(new ToolStripMenuItem(DisplayName(sub.Name))
-                {
-                    Font = new Font(MenuFont, FontStyle.Bold),
-                    ForeColor = SystemColors.GrayText
-                });
-                header.MouseUp += (_, e) =>
-                {
-                    if (e.Button == MouseButtons.Right) EntryEditForm.Show(sub.FullName, isFolder: true);
-                };
-                target.Add(header);
-                target.Add(CreatePasteItem(sub.FullName));
-
-                var children = BuildItems(sub.FullName, 1);
-                if (children.Length == 0)
-                    target.Add(Style(new ToolStripMenuItem("(leer)") { Enabled = false }));
-                else
-                    foreach (var child in children) target.Add(child);
-
-                target.Add(new ToolStripSeparator());
-            }
-            else if (entry is FileInfo file)
-            {
-                var leaf = BuildLeafOrSeparator(file);
-                if (leaf is not null) target.Add(leaf);
-            }
-        }
     }
 
     private static ToolStripMenuItem BuildFolderItem(DirectoryInfo sub, int depth)
@@ -714,6 +670,249 @@ internal static class MenuBuilder
         string shown = isShortcutType ? withoutExt : withoutExt + ext;
         return shown.Replace("&", "&&"); // & sonst als Tastenkürzel interpretiert
     }
+}
+
+/// <summary>
+/// "Erweiterte Ansicht": ein eigenes Popup-Fenster statt eines Menüs - alle
+/// Einträge der aktuellen Ebene als große Kacheln in einem Raster (bis zu
+/// 9 Spalten/Reihen sichtbar, darüber hinaus scrollbar). Klick auf eine
+/// Datei-Kachel öffnet sie, Klick auf eine Ordner-Kachel navigiert im
+/// selben Fenster hinein. Rechtsklick bearbeitet wie im normalen Menü.
+/// </summary>
+internal sealed class TileGridForm : Form
+{
+    private const int Columns = 9;
+    private const int MaxVisibleRows = 9;
+    private const int TileSize = 96;
+    private const int TileGap = 10;
+    private const int HeaderHeight = 40;
+
+    private static readonly Color BackgroundColor = Color.FromArgb(32, 32, 36);
+    private static readonly Color HeaderColor = Color.FromArgb(24, 24, 28);
+    private static readonly Color TileColor = Color.FromArgb(46, 46, 52);
+
+    private readonly string _root;
+    private readonly FlowLayoutPanel _flow;
+    private readonly Label _pathLabel;
+    private readonly Button _back;
+    private string _currentFolder;
+
+    private TileGridForm(string root)
+    {
+        _root = root;
+        _currentFolder = root;
+
+        FormBorderStyle = FormBorderStyle.None;
+        BackColor = BackgroundColor;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+        KeyPreview = true;
+
+        var header = new Panel { Dock = DockStyle.Top, Height = HeaderHeight, BackColor = HeaderColor };
+
+        _back = new Button
+        {
+            Text = "⬅ Zurück",
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = Color.White,
+            BackColor = HeaderColor,
+            Location = new Point(6, 5),
+            Size = new Size(90, 30)
+        };
+        _back.FlatAppearance.BorderSize = 0;
+        _back.Click += (_, _) => NavigateUp();
+
+        _pathLabel = new Label
+        {
+            AutoSize = true,
+            ForeColor = Color.Gainsboro,
+            Font = new Font("Segoe UI", 9.5f),
+            Location = new Point(106, 11)
+        };
+
+        var paste = new Button
+        {
+            Text = "Einfügen",
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = Color.White,
+            BackColor = HeaderColor,
+            Size = new Size(90, 30),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        paste.FlatAppearance.BorderSize = 0;
+        paste.Click += (_, _) => { ClipboardPaste.PasteInto(_currentFolder); RefreshTiles(); };
+
+        header.Controls.Add(_back);
+        header.Controls.Add(_pathLabel);
+        header.Controls.Add(paste);
+        header.Resize += (_, _) => paste.Location = new Point(header.Width - paste.Width - 6, 5);
+
+        _flow = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            AutoScroll = true,
+            BackColor = BackgroundColor,
+            Padding = new Padding(TileGap)
+        };
+
+        Controls.Add(_flow);
+        Controls.Add(header);
+
+        Deactivate += (_, _) => Close();
+        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+
+        Load += (_, _) => RefreshTiles();
+    }
+
+    public static void ShowAt(string root, Point cursorPos)
+    {
+        var form = new TileGridForm(root);
+        var area = Screen.FromPoint(cursorPos).WorkingArea;
+
+        int width = Math.Min(Columns * (TileSize + TileGap) + TileGap, area.Width - 20);
+        int height = Math.Min(HeaderHeight + MaxVisibleRows * (TileSize + TileGap) + TileGap, area.Height - 20);
+
+        bool above = cursorPos.Y > area.Top + area.Height / 2;
+        int x = Math.Clamp(cursorPos.X, area.Left, area.Right - width);
+        int y = above ? cursorPos.Y - height : cursorPos.Y;
+        y = Math.Clamp(y, area.Top, area.Bottom - height);
+
+        form.Size = new Size(width, height);
+        form.Location = new Point(x, y);
+        form.Show();
+        form.Activate();
+    }
+
+    private void NavigateUp()
+    {
+        if (string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase)) return;
+        _currentFolder = Path.GetDirectoryName(_currentFolder) ?? _root;
+        RefreshTiles();
+    }
+
+    private void RefreshTiles()
+    {
+        CodeRegistry.EnsureAllAssigned(_root);
+
+        _pathLabel.Text = GetRelativeLabel();
+        _back.Enabled = !string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase);
+
+        _flow.SuspendLayout();
+        var oldTiles = _flow.Controls.Cast<Control>().ToArray();
+        _flow.Controls.Clear();
+        foreach (Control c in oldTiles) c.Dispose();
+
+        List<FileSystemInfo> entries;
+        try
+        {
+            entries = MenuFs.GetOrderedEntries(_currentFolder);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _flow.Controls.Add(InfoLabel("Kein Zugriff."));
+            _flow.ResumeLayout();
+            return;
+        }
+
+        var tiles = entries
+            .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
+            .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+
+        if (tiles.Count == 0)
+            _flow.Controls.Add(InfoLabel("Dieser Ordner ist leer."));
+        else
+            foreach (var entry in tiles) _flow.Controls.Add(BuildTile(entry));
+
+        _flow.ResumeLayout();
+    }
+
+    private string GetRelativeLabel()
+    {
+        if (string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase)) return "Menü";
+        string rel = Path.GetRelativePath(_root, _currentFolder).Replace('\\', '›');
+        return string.Join('›', rel.Split('›').Select(MenuBuilder.DisplayName));
+    }
+
+    private static Label InfoLabel(string text) => new()
+    {
+        Text = text,
+        AutoSize = true,
+        ForeColor = Color.Gainsboro,
+        Font = new Font("Segoe UI", 10f),
+        Location = new Point(TileGap, TileGap)
+    };
+
+    private Control BuildTile(FileSystemInfo entry)
+    {
+        bool isFolder = entry is DirectoryInfo;
+        string path = entry.FullName;
+        string label = MenuBuilder.DisplayName(entry.Name);
+
+        var tile = new Panel
+        {
+            Size = new Size(TileSize, TileSize),
+            Margin = new Padding(TileGap / 2),
+            BackColor = TileColor,
+            Cursor = Cursors.Hand
+        };
+
+        var icon = new PictureBox
+        {
+            Image = IconCache.Get(path),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Size = new Size(48, 48),
+            Location = new Point((TileSize - 48) / 2, 10),
+            BackColor = Color.Transparent
+        };
+
+        var caption = new Label
+        {
+            Text = label,
+            ForeColor = Color.White,
+            TextAlign = ContentAlignment.TopCenter,
+            Font = new Font("Segoe UI", 8f),
+            Location = new Point(2, 62),
+            Size = new Size(TileSize - 4, 32),
+            AutoEllipsis = true
+        };
+
+        tile.Controls.Add(icon);
+        tile.Controls.Add(caption);
+
+        void Activate()
+        {
+            if (isFolder)
+            {
+                _currentFolder = path;
+                RefreshTiles();
+            }
+            else
+            {
+                Close();
+                Launcher.Open(path);
+            }
+        }
+
+        void EditOnRightClick(object? _, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right) return;
+            EntryEditForm.Show(path, isFolder);
+            RefreshTiles();
+        }
+
+        foreach (Control c in new Control[] { tile, icon, caption })
+        {
+            c.Click += (_, _) => Activate();
+            c.MouseUp += EditOnRightClick;
+        }
+
+        return tile;
+    }
+
+    // Kein eigener Dispose-Override nötig - Form.Dispose räumt die
+    // Controls-Hierarchie (inklusive aller Kacheln in _flow) bereits ab.
 }
 
 internal static class Launcher

@@ -82,19 +82,27 @@ ein Code schon vergeben, zeigt der Dialog an, von welchem Eintrag. Leer
 lassen vergibt beim nächsten Öffnen automatisch wieder einen neuen,
 zufälligen Code.
 
-## Erweiterte Ansicht
+## Erweiterte Ansicht (Kachelraster)
 
 Normalerweise sind Ordner Untermenüs, die man erst aufklappen muss. Der
 Menüpunkt **„Erweiterte Ansicht"** (unten im Menü, ein an/aus-Schalter)
-zeigt stattdessen den Inhalt der obersten Ordnerebene direkt im Hauptmenü an
-— jeder Ordner erscheint als fette Überschrift, gefolgt von seinen
-Einträgen. Tiefer verschachtelte Unterordner bleiben normale Untermenüs.
-Praktisch, wenn man lieber alles auf einen Blick sieht, statt sich
-durchzuhangeln.
+ersetzt das Menü stattdessen durch ein eigenes Fenster mit einem großen
+Kachelraster — bis zu 9×9 Kacheln sichtbar (Icon + Name), darüber hinaus
+scrollbar. Klick auf eine Datei-Kachel öffnet sie; Klick auf eine
+Ordner-Kachel navigiert im *selben* Fenster hinein, „Zurück" oben links geht
+wieder eine Ebene hoch. Auch hier: Rechtsklick auf eine Kachel bearbeitet
+sie genauso wie im normalen Menü, und „Einfügen" oben rechts fügt aus der
+Zwischenablage in den gerade angezeigten Ordner ein.
 
-Zusätzlich öffnet **Win+Alt+L** das Menü jederzeit direkt in der Erweiterten
-Ansicht — unabhängig vom sonst eingestellten Standardmodus, ganz ohne Klick
-auf das Taskleisten-Icon. Die Tastenkombinationen (L hier, Y für die
+Ist „Erweiterte Ansicht" als Standard aktiviert, öffnet ein Klick auf das
+Taskleisten-Icon künftig direkt das Kachelraster statt des klassischen
+Menüs. Zum Zurückschalten: **Win+Alt+Y** öffnet immer das klassische Menü
+(dort lässt sich die Checkbox wieder ausschalten) — praktisch als
+Rückfalloption, falls das Kachelraster gerade nicht passt.
+
+Zusätzlich öffnet **Win+Alt+L** das Kachelraster jederzeit direkt,
+unabhängig vom sonst eingestellten Standardmodus, ganz ohne Klick auf das
+Taskleisten-Icon. Die Tastenkombinationen (L hier, Y für die
 Schnellzugriffscodes) wurden bewusst so gewählt, weil Windows unter den
 Win+Alt-Kombinationen kaum etwas belegt (nur wenige Xbox-Game-Bar-Kürzel wie
 R/G/B/Enter/PrtScn und D für Datum/Uhrzeit) — beide sind frei und leicht zu
