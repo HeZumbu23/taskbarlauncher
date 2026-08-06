@@ -10,7 +10,15 @@ Konfigurationsdatei — ein Ordner *ist* das Menü.
 - Datei namens `---` → Trennlinie
 
 Gepflegt wird das Menü im Explorer per Drag & Drop; Änderungen wirken sofort,
-da der Ordner bei jedem Klick neu eingelesen wird.
+da der Ordner bei jedem Klick neu eingelesen wird. Zusätzlich lässt sich das
+Menü auch direkt aus sich selbst heraus pflegen (siehe unten): neue
+Verknüpfungen aus der Zwischenablage einfügen, bestehende Einträge per
+Rechtsklick umbenennen/Ziel ändern/löschen, und die Reihenfolge von Hand
+festlegen.
+
+Die Einträge sind bewusst groß gehalten (größere Schrift, größere Icons als
+Windows-Standardmenüs) für einen bequemen Treffer auch mit der Maus aus der
+Taskleiste heraus.
 
 ## Bauen
 
@@ -32,6 +40,37 @@ Beim ersten Start legt die App `%AppData%\TaskbarLauncher\Menue` an. Dorthin:
 - Links direkt aus der Browser-Adressleiste in den Ordner ziehen → Windows
   legt eine `.url`-Datei an.
 - Unterordner anlegen → werden automatisch zu Untermenüs.
+
+Oder direkt aus dem Menü heraus, ohne den Explorer zu öffnen:
+
+- **Aus Zwischenablage einfügen** (oben in jeder Menü-Ebene, egal ob Hauptmenü
+  oder ein Untermenü): Datei/Ordner im Explorer kopieren (Strg+C) und diesen
+  Menüpunkt klicken → legt eine `.lnk`-Verknüpfung genau in dieser Ebene an.
+  Bereits kopierte `.lnk`/`.url`-Dateien werden 1:1 übernommen. Kopierter
+  Text mit einer URL wird nach kurzer Namensabfrage zu einer `.url`-Datei.
+- **Rechtsklick auf einen Eintrag oder Ordner** öffnet einen kleinen Dialog
+  zum Umbenennen, bei Verknüpfungen/Links zum Ändern des Ziels, zum manuellen
+  Verschieben (▲/▼ — sortiert die gesamte Ebene neu ein und vergibt dafür
+  durchgängige Reihenfolge-Präfixe wie `01 `, `02 `, …) und zum Löschen.
+
+## Erweiterte Ansicht
+
+Normalerweise sind Ordner Untermenüs, die man erst aufklappen muss. Der
+Menüpunkt **„Erweiterte Ansicht"** (unten im Menü, ein an/aus-Schalter)
+zeigt stattdessen den Inhalt der obersten Ordnerebene direkt im Hauptmenü an
+— jeder Ordner erscheint als fette Überschrift, gefolgt von seinen
+Einträgen. Tiefer verschachtelte Unterordner bleiben normale Untermenüs.
+Praktisch, wenn man lieber alles auf einen Blick sieht, statt sich
+durchzuhangeln.
+
+Zusätzlich öffnet **Win+Alt+L** das Menü jederzeit direkt in der Erweiterten
+Ansicht — unabhängig vom sonst eingestellten Standardmodus, ganz ohne Klick
+auf das Taskleisten-Icon. Die Tastenkombination wurde bewusst so gewählt,
+weil Windows unter den Win+Alt-Kombinationen kaum etwas belegt (nur wenige
+Xbox-Game-Bar-Kürzel wie R/G/B/Enter/PrtScn und D für Datum/Uhrzeit) — L ist
+frei und mit „Launcher" leicht zu merken. Lässt sich in `Program.cs`
+(`VK_L`, `MOD_WIN`/`MOD_ALT`) auf eine andere Taste ändern, falls sie doch
+mit einem anderen Programm kollidiert.
 
 ## Auf der Taskleiste platzieren
 
