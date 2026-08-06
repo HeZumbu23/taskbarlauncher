@@ -36,13 +36,13 @@ Big font (11.5pt) and big icons (28px) — easy to hit with a mouse from a small
 - Renaming/reordering never touches the visible menu — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
 
 **🔲 Expanded View — a full tile grid**
-Toggle "Expanded View" for a completely different way to browse: a borderless tile grid (up to 9×9 tiles, icon + label, scrollable beyond that) instead of nested menus. Click a folder tile to drill in, "Back" to go up, right-click to edit — same actions, bigger canvas.
+Toggle "Expanded View" for a completely different way to browse: a borderless tile grid (large canvas, scrollable) instead of nested menus. The top level is grouped and visible right away — each folder shows up as a header with its contents laid out directly underneath, no clicking in required. Deeper folders still drill in on click, with "Back" to go up; right-click to edit, same as everywhere else.
 
-**🔢 Quick-access codes**
-Every file automatically gets a unique 3-digit code, invisibly embedded in its filename (`Report [117].pdf`) so it survives renames and reordering without a separate lookup table. Press **Win+Alt+Y**, type the code, hit Enter — the matching entry opens instantly, no matter how deep it's nested.
+**🔎 Real-time search**
+Press **Win+Alt+Y**, start typing — every keystroke filters live across every file in the entire menu tree, no matter how deep it's nested. Arrow keys to move through results, Enter to open the selected one.
 
 **⌨️ Global hotkeys, no taskbar click needed**
-`Win+Alt+L` jumps straight to the tile grid; `Win+Alt+Y` opens the menu with the code box already focused. See the [shortcuts table](#keyboard-shortcuts) below.
+`Win+Alt+L` jumps straight to the tile grid; `Win+Alt+Y` opens the search box already focused. See the [shortcuts table](#keyboard-shortcuts) below.
 
 **🚀 One instance, always ready**
 A named mutex keeps a second launch from ever starting — it just tells the running instance to show the menu instead, so a stray double-click never does nothing.
@@ -105,10 +105,10 @@ TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate
 | Shortcut | Action |
 |---|---|
 | `Win+Alt+L` | Open the tile grid (Expanded View) directly, regardless of the default mode |
-| `Win+Alt+Y` | Open the classic menu with the quick-access code box focused |
+| `Win+Alt+Y` | Open the real-time search box, focused and ready to type |
 | *(taskbar click)* | Open the menu in whichever mode is currently the default |
 
-`Win+Alt+L`/`Win+Alt+Y` were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "code"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
+`Win+Alt+L`/`Win+Alt+Y` were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "You searching?"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
 
 ## Customizing the icon
 
@@ -116,7 +116,7 @@ TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate
 
 ## Ideas for further extension
 
-- Fuzzy/typeahead search across all entries
+- Fuzzy matching in search (typo-tolerant, not just substring)
 - Pin recently-used entries to the top
 - Per-folder custom accent colors in the tile grid
 

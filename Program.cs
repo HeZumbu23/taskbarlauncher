@@ -71,20 +71,17 @@ internal static class Program
               genau in dieser Ebene.
             - Rechtsklick auf einen Eintrag oder Ordner öffnet ihn zum
               Umbenennen, Ziel ändern, manuellen Einsortieren (Rauf/Runter)
-              oder Löschen. Dort lässt sich bei Dateien auch der 3-stellige
-              Schnellzugriffscode ändern (leer lassen = automatische
-              Neuvergabe; ist ein Code schon vergeben, wird angezeigt an wen).
+              oder Löschen.
             - "Erweiterte Ansicht" (unten im Menü, an/aus) zeigt statt des
-              Menüs ein großes Kachelraster (bis zu 9x9 Kacheln) - Klick auf
-              eine Ordner-Kachel navigiert im selben Fenster hinein, "Zurück"
-              geht wieder hoch.
+              Menüs ein großes Kachelraster: die oberste Ebene steht sofort
+              gruppiert und sichtbar da, tiefere Ordner navigiert man per
+              Klick hinein, "Zurück" geht wieder hoch.
 
-            Jede Datei bekommt automatisch einen eindeutigen 3-stelligen Code
-            (unsichtbar im Dateinamen als "[123]"-Suffix, im Menü ausgeblendet).
-            Win+Alt+Y öffnet das Menü mit einem bereits fokussierten
-            Eingabefeld dafür - Code tippen und Enter öffnet den Eintrag
-            direkt, egal wie tief er verschachtelt ist.
-            Win+Alt+L öffnet das Menü direkt in der Erweiterten Ansicht.
+            Win+Alt+Y öffnet einen Suchschlitz mit sofort fokussiertem
+            Eingabefeld - tippen filtert in Echtzeit über alle Dateien der
+            gesamten Hierarchie, Pfeiltasten wählen, Enter öffnet den
+            markierten Treffer direkt, egal wie tief er verschachtelt ist.
+            Win+Alt+L öffnet direkt das Kachelraster (Erweiterte Ansicht).
 
             Änderungen wirken sofort, das Menü wird bei jedem Klick neu gelesen.
             """);
@@ -106,15 +103,14 @@ internal sealed class MainForm : Form
     private const int SC_RESTORE = 0xF120;
     private const int WM_HOTKEY = 0x0312;
 
-    // Win+Alt+L ("L" wie Launcher) öffnet das Menü in der Erweiterten Ansicht,
-    // unabhängig vom sonst eingestellten Standardmodus. Win+Alt+Y öffnet das
-    // Menü ganz normal, aber mit einem bereits fokussierten Eingabefeld für
-    // 3-stellige Dokument-Codes (Enter öffnet den Treffer direkt). Unter den
-    // Win+Alt-Kombinationen sind nur wenige von Windows selbst belegt
-    // (R/G/B/Enter/PrtScn für die Xbox Game Bar, D für Datum/Uhrzeit) -
-    // L und Y sind frei.
+    // Win+Alt+L ("L" wie Launcher) öffnet das Kachelraster (Erweiterte
+    // Ansicht), unabhängig vom sonst eingestellten Standardmodus. Win+Alt+Y
+    // öffnet den Echtzeit-Suchschlitz mit bereits fokussiertem Eingabefeld.
+    // Unter den Win+Alt-Kombinationen sind nur wenige von Windows selbst
+    // belegt (R/G/B/Enter/PrtScn für die Xbox Game Bar, D für Datum/Uhrzeit)
+    // - L und Y sind frei.
     private const int ExpandedViewHotkeyId = 1;
-    private const int CodeSearchHotkeyId = 2;
+    private const int SearchHotkeyId = 2;
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_WIN = 0x0008;
     private const uint MOD_NOREPEAT = 0x4000;
@@ -156,13 +152,13 @@ internal sealed class MainForm : Form
         // wird bewusst stillschweigend ignoriert - die App bleibt trotzdem
         // über den Taskleisten-Klick voll nutzbar.
         RegisterHotKey(Handle, ExpandedViewHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_L);
-        RegisterHotKey(Handle, CodeSearchHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_Y);
+        RegisterHotKey(Handle, SearchHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_Y);
     }
 
     protected override void OnHandleDestroyed(EventArgs e)
     {
         UnregisterHotKey(Handle, ExpandedViewHotkeyId);
-        UnregisterHotKey(Handle, CodeSearchHotkeyId);
+        UnregisterHotKey(Handle, SearchHotkeyId);
         base.OnHandleDestroyed(e);
     }
 
@@ -199,30 +195,27 @@ internal sealed class MainForm : Form
             return;
         }
 
-        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == CodeSearchHotkeyId)
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == SearchHotkeyId)
         {
-            ShowMenu(showCodeBox: true);
+            SearchForm.ShowAt(Program.MenuRoot, Cursor.Position);
             return;
         }
 
         base.WndProc(ref m);
     }
 
-    private void ShowMenu(bool showCodeBox = false)
+    private void ShowMenu()
     {
         // Der Standardmodus "Erweiterte Ansicht" zeigt statt des normalen
-        // Menüs das Kachelraster - außer die Code-Suche (Win+Alt+Y) wurde
-        // angefordert, die bleibt an das klassische Menü gebunden (dort ist
-        // das Eingabefeld eingebettet, und von dort lässt sich der
-        // Standardmodus über die Checkbox auch wieder zurückstellen).
-        if (Settings.ExpandedView && !showCodeBox)
+        // Menüs das Kachelraster.
+        if (Settings.ExpandedView)
         {
             TileGridForm.ShowAt(Program.MenuRoot, Cursor.Position);
             return;
         }
 
         _menu?.Dispose();
-        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true, showCodeBox);
+        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true);
 
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
@@ -317,27 +310,16 @@ internal static class OrderPrefixHelper
 }
 
 /// <summary>
-/// Vergibt automatisch eindeutige 3-stellige Codes an alle Dokument-Dateien
-/// (nicht an Ordner), unsichtbar eingebettet als " [123]"-Suffix direkt im
-/// Dateinamen - dadurch bleibt der Code beim Umbenennen/manuellen Sortieren
-/// automatisch erhalten, ganz ohne separate Zuordnungstabelle. Für den
-/// schnellen Zugriff per Tastatur (Win+Alt+Y, siehe MainForm).
+/// Räumt einmalig die " [123]"-Codesuffixe eines früheren Prototyps aus
+/// vorhandenen Dateinamen wieder heraus (ersetzt durch den Echtzeit-
+/// Suchschlitz, Win+Alt+Y). Läuft bei jedem Menüaufbau; sobald alle Namen
+/// bereinigt sind, ist es ein reiner No-op-Scan.
 /// </summary>
-internal static class CodeRegistry
+internal static class LegacyCodeCleanup
 {
     private static readonly Regex Suffix = new(@"\s*\[(\d{3})\]$", RegexOptions.Compiled);
 
-    public static string? ExtractCode(string baseNameWithoutExtension)
-    {
-        var m = Suffix.Match(baseNameWithoutExtension);
-        return m.Success ? m.Groups[1].Value : null;
-    }
-
-    public static string StripSuffix(string baseNameWithoutExtension)
-        => Suffix.Replace(baseNameWithoutExtension, "");
-
-    /// <summary>Vergibt fehlende Codes an alle Dateien unterhalb von root (rekursiv). Läuft bei jedem Menüaufbau.</summary>
-    public static void EnsureAllAssigned(string root)
+    public static void StripAll(string root)
     {
         if (!Directory.Exists(root)) return;
 
@@ -345,27 +327,18 @@ internal static class CodeRegistry
         try { files = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)]; }
         catch (UnauthorizedAccessException) { return; }
 
-        var used = new HashSet<string>();
         foreach (var file in files)
         {
-            var code = ExtractCode(Path.GetFileNameWithoutExtension(file));
-            if (code is not null) used.Add(code);
-        }
-
-        foreach (var file in files)
-        {
-            string name = Path.GetFileName(file);
-            if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
-
             string baseName = Path.GetFileNameWithoutExtension(file);
-            string withoutOrderPrefix = OrderPrefixHelper.Strip(baseName);
-            if (withoutOrderPrefix.Length > 0 && withoutOrderPrefix.All(c => c == '-')) continue; // Trennlinien-Dateien
-            if (ExtractCode(baseName) is not null) continue; // hat schon einen Code
+            if (!Suffix.IsMatch(baseName)) continue;
 
-            string code = NextFreeCode(used);
+            string cleanBase = Suffix.Replace(baseName, "");
             string ext = Path.GetExtension(file);
             string dir = Path.GetDirectoryName(file)!;
-            string newPath = Path.Combine(dir, $"{baseName} [{code}]{ext}");
+            string newPath = Path.Combine(dir, cleanBase + ext);
+
+            for (int n = 2; File.Exists(newPath); n++)
+                newPath = Path.Combine(dir, $"{cleanBase} ({n}){ext}");
 
             try
             {
@@ -377,26 +350,6 @@ internal static class CodeRegistry
                 // Datei evtl. gerade in Benutzung o.ä. - beim nächsten Öffnen erneut versuchen.
             }
         }
-    }
-
-    public static string? FindByCode(string root, string code)
-    {
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-                if (ExtractCode(Path.GetFileNameWithoutExtension(file)) == code)
-                    return file;
-        }
-        catch (UnauthorizedAccessException) { }
-        return null;
-    }
-
-    private static string NextFreeCode(HashSet<string> used)
-    {
-        string code;
-        do { code = Random.Shared.Next(0, 1000).ToString("000"); }
-        while (!used.Add(code));
-        return code;
     }
 }
 
@@ -488,9 +441,9 @@ internal static class MenuBuilder
     private static readonly Font MenuFont = new("Segoe UI", 11.5f);
     private static readonly Size MenuImageSize = new(28, 28);
 
-    public static ContextMenuStrip Build(string root, bool showExit, bool showCodeBox = false)
+    public static ContextMenuStrip Build(string root, bool showExit)
     {
-        CodeRegistry.EnsureAllAssigned(root);
+        LegacyCodeCleanup.StripAll(root);
 
         var menu = new ContextMenuStrip
         {
@@ -499,29 +452,6 @@ internal static class MenuBuilder
             ShowImageMargin = true,
             RenderMode = ToolStripRenderMode.System
         };
-
-        if (showCodeBox)
-        {
-            var codeBox = new ToolStripTextBox { Width = 200 };
-            ((TextBox)codeBox.Control).PlaceholderText = "Code eingeben und Enter…";
-            codeBox.KeyDown += (_, e) =>
-            {
-                if (e.KeyCode != Keys.Enter) return;
-                e.SuppressKeyPress = true;
-
-                string code = codeBox.Text.Trim();
-                if (code.Length != 3 || !code.All(char.IsDigit)) return;
-
-                string? target = CodeRegistry.FindByCode(root, code);
-                if (target is null) return;
-
-                menu.Close();
-                Launcher.Open(target);
-            };
-            menu.Items.Add(codeBox);
-            menu.Items.Add(new ToolStripSeparator());
-            menu.Opened += (_, _) => codeBox.Focus();
-        }
 
         menu.Items.Add(CreatePasteItem(root));
         menu.Items.Add(new ToolStripSeparator());
@@ -654,7 +584,7 @@ internal static class MenuBuilder
     }
 
     /// <summary>Öffentlich, damit z. B. EntryEditForm dieselbe Anzeigelogik für
-    /// Meldungen ("Code bereits vergeben an ...") wiederverwenden kann.</summary>
+    /// Meldungen wiederverwenden kann (z. B. im Suchschlitz).</summary>
     public static string DisplayName(string name)
     {
         var ext = Path.GetExtension(name);
@@ -663,7 +593,6 @@ internal static class MenuBuilder
 
         string withoutExt = Path.GetFileNameWithoutExtension(name);
         withoutExt = OrderPrefixHelper.Strip(withoutExt);
-        withoutExt = CodeRegistry.StripSuffix(withoutExt);
 
         // Endung nur bei Verknüpfungen entfernen - bei echten Dateien ist sie
         // eine nützliche Information.
@@ -752,6 +681,8 @@ internal sealed class TileGridForm : Form
         {
             Dock = DockStyle.Fill,
             AutoScroll = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
             BackColor = BackgroundColor,
             Padding = new Padding(TileGap)
         };
@@ -791,41 +722,143 @@ internal sealed class TileGridForm : Form
         RefreshTiles();
     }
 
+    private bool IsAtRoot => string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase);
+
     private void RefreshTiles()
     {
-        CodeRegistry.EnsureAllAssigned(_root);
+        LegacyCodeCleanup.StripAll(_root);
 
         _pathLabel.Text = GetRelativeLabel();
-        _back.Enabled = !string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase);
+        _back.Enabled = !IsAtRoot;
 
         _flow.SuspendLayout();
-        var oldTiles = _flow.Controls.Cast<Control>().ToArray();
+        var oldControls = _flow.Controls.Cast<Control>().ToArray();
         _flow.Controls.Clear();
-        foreach (Control c in oldTiles) c.Dispose();
+        foreach (Control c in oldControls) c.Dispose();
 
+        // Auf der Wurzelebene sind Ordner keine eigenen Klick-Kacheln mehr -
+        // ihr Inhalt steht direkt und gruppiert im Raster, ganz ohne
+        // Reinklicken. Tiefere Ebenen navigiert man wie gewohnt hinein.
+        if (IsAtRoot)
+            BuildGroupedRoot();
+        else
+            BuildSingleFolder(_currentFolder);
+
+        _flow.ResumeLayout();
+    }
+
+    private void BuildGroupedRoot()
+    {
         List<FileSystemInfo> entries;
         try
         {
-            entries = MenuFs.GetOrderedEntries(_currentFolder);
+            entries = MenuFs.GetOrderedEntries(_root);
         }
         catch (UnauthorizedAccessException)
         {
             _flow.Controls.Add(InfoLabel("Kein Zugriff."));
-            _flow.ResumeLayout();
             return;
         }
 
-        var tiles = entries
-            .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
-            .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+        var looseFiles = FilterVisible(entries.Where(e => e is FileInfo));
+        var folders = entries.OfType<DirectoryInfo>().ToList();
 
-        if (tiles.Count == 0)
+        if (looseFiles.Count == 0 && folders.Count == 0)
+        {
             _flow.Controls.Add(InfoLabel("Dieser Ordner ist leer."));
-        else
-            foreach (var entry in tiles) _flow.Controls.Add(BuildTile(entry));
+            return;
+        }
 
-        _flow.ResumeLayout();
+        if (looseFiles.Count > 0)
+            _flow.Controls.Add(BuildTileRow(looseFiles));
+
+        foreach (var folder in folders)
+        {
+            var header = BuildGroupHeader(folder);
+            _flow.Controls.Add(header);
+
+            List<FileSystemInfo> children;
+            try
+            {
+                children = FilterVisible(MenuFs.GetOrderedEntries(folder.FullName));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                _flow.Controls.Add(InfoLabel("Kein Zugriff."));
+                continue;
+            }
+
+            _flow.Controls.Add(children.Count == 0
+                ? InfoLabel("(leer)")
+                : BuildTileRow(children));
+        }
+    }
+
+    private void BuildSingleFolder(string folder)
+    {
+        List<FileSystemInfo> entries;
+        try
+        {
+            entries = MenuFs.GetOrderedEntries(folder);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _flow.Controls.Add(InfoLabel("Kein Zugriff."));
+            return;
+        }
+
+        var visible = FilterVisible(entries);
+        _flow.Controls.Add(visible.Count == 0
+            ? InfoLabel("Dieser Ordner ist leer.")
+            : BuildTileRow(visible));
+    }
+
+    private static List<FileSystemInfo> FilterVisible(IEnumerable<FileSystemInfo> entries) =>
+        [.. entries
+            .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
+            .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))];
+
+    /// <summary>Ein horizontal umbrechendes Kachel-"Regal" mit fester Breite
+    /// (= sichtbare Fensterbreite), damit es tatsächlich mehrzeilig umbricht
+    /// statt einfach immer breiter zu werden.</summary>
+    private FlowLayoutPanel BuildTileRow(IEnumerable<FileSystemInfo> entries)
+    {
+        // Vorsorglich um die Breite eines Scrollbalkens reduziert, damit
+        // Zeilen nicht knapp überlaufen, sobald das Raster hoch genug für
+        // einen vertikalen Scrollbalken wird.
+        int availableWidth = Math.Max(TileSize + TileGap * 2,
+            _flow.ClientSize.Width - TileGap * 2 - SystemInformation.VerticalScrollBarWidth);
+        var row = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MaximumSize = new Size(availableWidth, 0),
+            BackColor = BackgroundColor,
+            Margin = new Padding(0, 0, 0, TileGap)
+        };
+        foreach (var entry in entries) row.Controls.Add(BuildTile(entry));
+        return row;
+    }
+
+    private Label BuildGroupHeader(DirectoryInfo folder)
+    {
+        var header = new Label
+        {
+            Text = MenuBuilder.DisplayName(folder.Name),
+            AutoSize = true,
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 12f, FontStyle.Bold),
+            Margin = new Padding(2, 12, 0, 6)
+        };
+        header.MouseUp += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Right) return;
+            EntryEditForm.Show(folder.FullName, isFolder: true);
+            RefreshTiles();
+        };
+        return header;
     }
 
     private string GetRelativeLabel()
@@ -913,6 +946,204 @@ internal sealed class TileGridForm : Form
 
     // Kein eigener Dispose-Override nötig - Form.Dispose räumt die
     // Controls-Hierarchie (inklusive aller Kacheln in _flow) bereits ab.
+}
+
+/// <summary>
+/// Echtzeit-Suchschlitz (Win+Alt+Y): Eingabefeld direkt fokussiert, jeder
+/// Tastendruck filtert live über alle Dateien der gesamten Menü-Hierarchie
+/// (rekursiv, unabhängig von der Verschachtelungstiefe). Pfeiltasten zum
+/// Navigieren, Enter öffnet den markierten Treffer.
+/// </summary>
+internal sealed class SearchForm : Form
+{
+    private const int MaxResults = 30;
+    private const int RowHeight = 40;
+
+    private static readonly Color BackgroundColor = Color.FromArgb(32, 32, 36);
+    private static readonly Color InputColor = Color.FromArgb(24, 24, 28);
+    private static readonly Color RowSelectedColor = Color.FromArgb(50, 50, 58);
+
+    private readonly string _root;
+    private readonly TextBox _searchBox;
+    private readonly ListBox _results;
+    private List<FileInfo> _matches = [];
+
+    private SearchForm(string root)
+    {
+        _root = root;
+
+        FormBorderStyle = FormBorderStyle.None;
+        BackColor = BackgroundColor;
+        ShowInTaskbar = false;
+        StartPosition = FormStartPosition.Manual;
+        TopMost = true;
+        KeyPreview = true;
+
+        _searchBox = new TextBox
+        {
+            Dock = DockStyle.Top,
+            Font = new Font("Segoe UI", 14f),
+            BackColor = InputColor,
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            PlaceholderText = "Tippen zum Suchen…"
+        };
+        _searchBox.Height = _searchBox.PreferredHeight + 16;
+
+        _results = new ListBox
+        {
+            Dock = DockStyle.Fill,
+            BackColor = BackgroundColor,
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.None,
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = RowHeight,
+            IntegralHeight = false,
+            Font = new Font("Segoe UI", 10.5f)
+        };
+        _results.DrawItem += ResultsOnDrawItem;
+        _results.MouseDown += (_, e) =>
+        {
+            int index = _results.IndexFromPoint(e.Location);
+            if (index < 0) return;
+            _results.SelectedIndex = index;
+            OpenSelected();
+        };
+
+        _searchBox.TextChanged += (_, _) => RunSearch();
+        _searchBox.KeyDown += SearchBoxOnKeyDown;
+
+        Controls.Add(_results);
+        Controls.Add(_searchBox);
+
+        Deactivate += (_, _) => Close();
+        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+
+        Load += (_, _) => RunSearch();
+    }
+
+    public static void ShowAt(string root, Point cursorPos)
+    {
+        var form = new SearchForm(root);
+        var area = Screen.FromPoint(cursorPos).WorkingArea;
+
+        int width = Math.Min(520, area.Width - 20);
+        int height = Math.Min(480, area.Height - 20);
+
+        bool above = cursorPos.Y > area.Top + area.Height / 2;
+        int x = Math.Clamp(cursorPos.X, area.Left, area.Right - width);
+        int y = above ? cursorPos.Y - height : cursorPos.Y;
+        y = Math.Clamp(y, area.Top, area.Bottom - height);
+
+        form.Size = new Size(width, height);
+        form.Location = new Point(x, y);
+        form.Show();
+        form.Activate();
+        form._searchBox.Focus();
+    }
+
+    private void RunSearch()
+    {
+        string query = _searchBox.Text.Trim();
+
+        if (query.Length == 0)
+        {
+            _matches = [];
+        }
+        else
+        {
+            List<FileInfo> files;
+            try
+            {
+                files = [.. Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories)
+                                      .Select(p => new FileInfo(p))
+                                      .Where(MenuFs.IsVisible)
+                                      .Where(f => !f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
+                                      .Where(f => !MenuFs.IsSeparatorFile(f))];
+            }
+            catch (UnauthorizedAccessException)
+            {
+                files = [];
+            }
+
+            _matches = files
+                .Select(f => (File: f, Name: MenuBuilder.DisplayName(f.Name)))
+                .Where(x => x.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                .OrderByDescending(x => x.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase))
+                .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Take(MaxResults)
+                .Select(x => x.File)
+                .ToList();
+        }
+
+        _results.BeginUpdate();
+        _results.Items.Clear();
+        foreach (var f in _matches) _results.Items.Add(f.FullName);
+        _results.EndUpdate();
+
+        if (_results.Items.Count > 0) _results.SelectedIndex = 0;
+    }
+
+    private void ResultsOnDrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= _matches.Count) { e.DrawBackground(); return; }
+
+        var file = _matches[e.Index];
+        bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+
+        using (var bg = new SolidBrush(selected ? RowSelectedColor : BackgroundColor))
+            e.Graphics.FillRectangle(bg, e.Bounds);
+
+        var icon = IconCache.Get(file.FullName);
+        if (icon is not null)
+            e.Graphics.DrawImage(icon, new Rectangle(e.Bounds.X + 8, e.Bounds.Y + 6, 28, 28));
+
+        string name = MenuBuilder.DisplayName(file.Name);
+        string relDir = Path.GetRelativePath(_root, file.DirectoryName ?? _root);
+        string path = relDir == "." ? "" : string.Join(" › ", relDir.Split(Path.DirectorySeparatorChar).Select(MenuBuilder.DisplayName));
+
+        using var nameBrush = new SolidBrush(Color.White);
+        using var pathBrush = new SolidBrush(Color.Gainsboro);
+        using var pathFont = new Font(_results.Font.FontFamily, 8f);
+
+        e.Graphics.DrawString(name, _results.Font, nameBrush, e.Bounds.X + 44, e.Bounds.Y + 3);
+        if (path.Length > 0)
+            e.Graphics.DrawString(path, pathFont, pathBrush, e.Bounds.X + 44, e.Bounds.Y + 22);
+    }
+
+    private void SearchBoxOnKeyDown(object? sender, KeyEventArgs e)
+    {
+        switch (e.KeyCode)
+        {
+            case Keys.Down:
+                if (_results.Items.Count > 0)
+                    _results.SelectedIndex = Math.Min(_results.SelectedIndex + 1, _results.Items.Count - 1);
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                break;
+
+            case Keys.Up:
+                if (_results.Items.Count > 0)
+                    _results.SelectedIndex = Math.Max(_results.SelectedIndex - 1, 0);
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                break;
+
+            case Keys.Enter:
+                OpenSelected();
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                break;
+        }
+    }
+
+    private void OpenSelected()
+    {
+        if (_results.SelectedIndex < 0 || _results.SelectedIndex >= _matches.Count) return;
+        string target = _matches[_results.SelectedIndex].FullName;
+        Close();
+        Launcher.Open(target);
+    }
 }
 
 internal static class Launcher
@@ -1137,7 +1368,6 @@ internal sealed class NamePromptForm : Form
 internal sealed class EntryEditForm : Form
 {
     private readonly TextBox _nameBox;
-    private readonly TextBox? _codeBox;
     private readonly TextBox? _targetBox;
     private readonly Button _up;
     private readonly Button _down;
@@ -1174,7 +1404,7 @@ internal sealed class EntryEditForm : Form
             Location = new Point(12, 35),
             Width = 356,
             Height = 23,
-            Text = CodeRegistry.StripSuffix(OrderPrefixHelper.Strip(rawBase))
+            Text = OrderPrefixHelper.Strip(rawBase)
         };
 
         _up = new Button { Text = "▲", Location = new Point(374, 35), Width = 26, Height = 23 };
@@ -1185,23 +1415,6 @@ internal sealed class EntryEditForm : Form
         Controls.AddRange([nameLabel, _nameBox, _up, _down]);
 
         int y = 68;
-
-        if (!isFolder)
-        {
-            string currentCode = CodeRegistry.ExtractCode(OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(path))) ?? "";
-            var codeLabel = new Label { Text = "Code:", AutoSize = true, Location = new Point(12, y + 3) };
-            _codeBox = new TextBox { Location = new Point(60, y), Width = 50, Height = 23, MaxLength = 3, Text = currentCode };
-            var codeHint = new Label
-            {
-                Text = "3 Ziffern - leer lassen für automatische Neuvergabe",
-                AutoSize = true,
-                Location = new Point(120, y + 4),
-                ForeColor = SystemColors.GrayText,
-                Font = new Font(Font.FontFamily, 8f)
-            };
-            Controls.AddRange([codeLabel, _codeBox, codeHint]);
-            y += 33;
-        }
 
         if (isShortcut)
         {
@@ -1300,31 +1513,11 @@ internal sealed class EntryEditForm : Form
     private void Apply()
     {
         string newBaseName = string.IsNullOrWhiteSpace(_nameBox.Text)
-            ? CodeRegistry.StripSuffix(OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(_currentPath)))
+            ? OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(_currentPath))
             : SanitizeFileName(_nameBox.Text.Trim());
 
-        string codeSuffix = "";
-        if (_codeBox is not null)
-        {
-            string enteredCode = _codeBox.Text.Trim();
-            if (enteredCode.Length > 0)
-            {
-                if (enteredCode.Length != 3 || !enteredCode.All(char.IsDigit))
-                    throw new InvalidOperationException("Der Code muss aus genau 3 Ziffern bestehen (oder leer bleiben für automatische Neuvergabe).");
-
-                string? owner = CodeRegistry.FindByCode(Program.MenuRoot, enteredCode);
-                if (owner is not null && !string.Equals(owner, _currentPath, StringComparison.OrdinalIgnoreCase))
-                {
-                    string ownerLabel = MenuBuilder.DisplayName(Path.GetFileName(owner));
-                    throw new InvalidOperationException($"Code {enteredCode} ist bereits vergeben an \"{ownerLabel}\".");
-                }
-
-                codeSuffix = $" [{enteredCode}]";
-            }
-        }
-
         string parent = Path.GetDirectoryName(_currentPath)!;
-        string newFileName = _orderPrefix + newBaseName + codeSuffix + (_isFolder ? "" : _extension);
+        string newFileName = _orderPrefix + newBaseName + (_isFolder ? "" : _extension);
         string newPath = Path.Combine(parent, newFileName);
 
         if (!string.Equals(_currentPath, newPath, StringComparison.Ordinal))
