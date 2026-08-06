@@ -35,19 +35,42 @@ Beim ersten Start legt die App `%AppData%\TaskbarLauncher\Menue` an. Dorthin:
 
 ## Auf der Taskleiste platzieren
 
-**Variante A — Tray-Symbol (einfach):** App ohne Argumente starten. Damit
-das Symbol dauerhaft sichtbar bleibt: *Einstellungen → Personalisierung →
-Taskleiste → „Andere Symbole in der Taskleistenecke"*.
+Die App zeigt kein Fenster und kein Tray-Symbol. Sie läuft dauerhaft
+minimiert im Hintergrund und ist dadurch als ganz normaler Eintrag in der
+Taskleiste sichtbar — wie jede andere offene App. Ein Klick auf diesen
+Button fängt Windows' „Fenster wiederherstellen"-Befehl ab, bevor er
+passiert, und öffnet stattdessen sofort das Menü. Kein Doppelklick-Delay,
+kein Tray, kein Neustart pro Klick.
 
-**Variante B — angeheftetes Icon:** Verknüpfung auf die `.exe` anlegen, in
-deren Eigenschaften beim Feld „Ziel" `--once` anhängen, dann per Rechtsklick
-„An Taskleiste anheften". Ein Klick startet die App, zeigt das Menü und
-beendet sich danach automatisch wieder (kurze Startverzögerung, ca.
-100–300 ms).
+Einrichtung:
 
-## Autostart (für die Tray-Variante)
+1. `TaskbarLauncher.exe` einmal manuell starten (Doppelklick). Der erste
+   Klick zeigt gleich das Menü; die App bleibt danach minimiert im
+   Hintergrund aktiv — der Taskleisten-Button bleibt stehen.
+2. Auf diesen Button rechtsklicken → **„An Taskleiste anheften"**.
+3. Fertig. Jeder weitere Klick auf das angeheftete Icon öffnet direkt das
+   Menü, solange die App läuft.
 
-`Win+R` → `shell:startup` → Verknüpfung auf die `.exe` in den Ordner legen.
+Für ein dauerhaft angeheftetes, funktionierendes Icon auch nach einem
+Neustart braucht es zusätzlich den Autostart (nächster Abschnitt) — sonst
+zeigt ein Klick nach einem Neustart erst wieder nur den Start-Klick
+(App startet neu, zeigt das Menü, bleibt dann laufen).
+
+## Autostart
+
+`Win+R` → `shell:startup` → dort eine Verknüpfung auf `TaskbarLauncher.exe`
+anlegen und in deren Eigenschaften beim Feld „Ziel" ein Leerzeichen gefolgt
+von `--startup` anhängen, z. B.:
+
+```
+"C:\Pfad\zu\TaskbarLauncher.exe" --startup
+```
+
+Das Argument sorgt dafür, dass die App beim Anmelden lautlos im Hintergrund
+startet, statt sofort das Menü aufzuklappen. Da es bereits läuft, sobald
+Windows fertig geladen hat, verschmilzt der Autostart-Prozess mit dem
+angehefteten Icon zu einem einzigen Button — jeder Klick öffnet ab dann
+sofort das Menü, ganz ohne Verzögerung.
 
 ## Mögliche Erweiterungen
 

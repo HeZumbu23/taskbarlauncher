@@ -11,20 +11,26 @@ internal static class Program
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "TaskbarLauncher", "Menue");
 
+    private const string SingleInstanceMutexName = "TaskbarLauncher-9F1E2C3B-SingleInstance";
+
+    // Von der Autostart-Verknüpfung gesetzt, damit der stille Start beim
+    // Anmelden nicht sofort das Menü aufklappt (siehe MainForm.OnShown).
+    public const string StartupArg = "--startup";
+
     [STAThread]
     private static void Main(string[] args)
     {
+        using var mutex = new Mutex(true, SingleInstanceMutexName, out bool createdNew);
+        if (!createdNew) return; // läuft bereits - das angeheftete Icon zeigt die laufende Instanz
+
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
         EnsureMenuFolder();
 
-        // --once: Menü einmal anzeigen und danach beenden (für eine an die
-        // Taskleiste angeheftete Verknüpfung). Ohne Argument: Tray-Symbol.
-        bool once = args.Any(a => a.Equals("--once", StringComparison.OrdinalIgnoreCase));
-
-        Application.Run(new LauncherContext(once));
+        bool startedSilently = args.Any(a => a.Equals(StartupArg, StringComparison.OrdinalIgnoreCase));
+        Application.Run(new MainForm(startedSilently));
     }
 
     private static void EnsureMenuFolder()
@@ -54,50 +60,57 @@ internal static class Program
 }
 
 /// <summary>
-/// Hält das Tray-Symbol und zeigt das Menü an. Kein sichtbares Fenster.
+/// Läuft dauerhaft im Hintergrund als ganz normaler Taskleisten-Eintrag -
+/// aber immer minimiert, also ohne je ein Fenster zu zeigen. Ein Klick auf
+/// den Taskleisten-Button lässt Windows zuerst WM_SYSCOMMAND/SC_RESTORE an
+/// das Fenster schicken, bevor es tatsächlich wiederhergestellt wird. Genau
+/// diese Nachricht fangen wir ab: statt das Fenster zu zeigen, öffnen wir
+/// das Menü und lassen es minimiert. So bleibt exakt ein normales, anheftbares
+/// Icon übrig, dessen Klick sofort das Menü öffnet - ohne Tray, ohne Neustart.
 /// </summary>
-internal sealed class LauncherContext : ApplicationContext
+internal sealed class MainForm : Form
 {
-    private readonly NotifyIcon? _tray;
-    private readonly bool _once;
+    private const int WM_SYSCOMMAND = 0x0112;
+    private const int SC_RESTORE = 0xF120;
+
     private ContextMenuStrip? _menu;
 
-    public LauncherContext(bool once)
+    public MainForm(bool startedSilently)
     {
-        _once = once;
+        Text = "Launcher";
+        Icon = LoadAppIcon();
+        ShowInTaskbar = true;
+        StartPosition = FormStartPosition.Manual;
+        Location = new Point(-32000, -32000);
+        Size = new Size(1, 1);
+        FormBorderStyle = FormBorderStyle.FixedToolWindow;
 
-        if (once)
+        Load += (_, _) => WindowState = FormWindowState.Minimized;
+
+        if (!startedSilently)
         {
-            // Menü erst zeigen, wenn die Nachrichtenschleife läuft.
-            var starter = new System.Windows.Forms.Timer { Interval = 1 };
-            starter.Tick += (_, _) => { starter.Stop(); starter.Dispose(); ShowMenu(); };
-            starter.Start();
-            return;
+            // Manueller Start (Doppelklick / erster Klick auf ein noch nicht
+            // laufendes, angeheftetes Icon) - direkt das Menü zeigen, statt
+            // den Klick "wirkungslos" verpuffen zu lassen.
+            Shown += (_, _) => ShowMenu();
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
+        {
+            ShowMenu();
+            return; // nicht an Windows weiterreichen -> Fenster bleibt minimiert/unsichtbar
         }
 
-        _tray = new NotifyIcon
-        {
-            Icon = LoadAppIcon(),
-            Text = "Launcher",
-            Visible = true
-        };
-        _tray.MouseClick += (_, e) =>
-        {
-            if (e.Button is MouseButtons.Left or MouseButtons.Right) ShowMenu();
-        };
+        base.WndProc(ref m);
     }
 
     private void ShowMenu()
     {
         _menu?.Dispose();
-        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: !_once);
-
-        if (_once)
-        {
-            // Nach dem Schließen beenden - leicht verzögert, weil das Click-
-            // Ereignis eines Eintrags erst nach dem Closed-Ereignis eintrifft.
-            _menu.Closed += (_, _) => ExitDelayed();
-        }
+        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true);
 
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
@@ -117,13 +130,6 @@ internal sealed class LauncherContext : ApplicationContext
         _menu.Focus();
     }
 
-    private void ExitDelayed()
-    {
-        var t = new System.Windows.Forms.Timer { Interval = 400 };
-        t.Tick += (_, _) => { t.Stop(); t.Dispose(); ExitThread(); };
-        t.Start();
-    }
-
     private static Icon LoadAppIcon()
     {
         try
@@ -138,11 +144,7 @@ internal sealed class LauncherContext : ApplicationContext
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
-        {
-            if (_tray is not null) { _tray.Visible = false; _tray.Dispose(); }
-            _menu?.Dispose();
-        }
+        if (disposing) _menu?.Dispose();
         base.Dispose(disposing);
     }
 }
