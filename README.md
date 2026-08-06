@@ -51,7 +51,26 @@ Oder direkt aus dem Menü heraus, ohne den Explorer zu öffnen:
 - **Rechtsklick auf einen Eintrag oder Ordner** öffnet einen kleinen Dialog
   zum Umbenennen, bei Verknüpfungen/Links zum Ändern des Ziels, zum manuellen
   Verschieben (▲/▼ — sortiert die gesamte Ebene neu ein und vergibt dafür
-  durchgängige Reihenfolge-Präfixe wie `01 `, `02 `, …) und zum Löschen.
+  durchgängige Reihenfolge-Präfixe wie `01 `, `02 `, …), zum Ändern des
+  Schnellzugriffscodes (siehe unten) und zum Löschen.
+
+## Schnellzugriffscodes (Win+Alt+Y)
+
+Jede Datei bekommt automatisch einen eindeutigen 3-stelligen Code, unsichtbar
+im Dateinamen als `[123]`-Suffix hinterlegt (im Menü selbst nicht sichtbar —
+er steht nur im tatsächlichen Dateinamen, damit er Umbenennen und manuelles
+Sortieren automatisch übersteht, ganz ohne separate Zuordnungstabelle).
+
+**Win+Alt+Y** öffnet das Menü ganz normal, aber mit einem bereits
+fokussierten Eingabefeld ganz oben. Code tippen, Enter drücken → der
+zugehörige Eintrag öffnet sich sofort, egal wie tief er verschachtelt ist —
+kein Durchklicken nötig.
+
+Codes lassen sich im Rechtsklick-Bearbeiten-Dialog auch von Hand setzen
+(nützlich für gut merkbare Codes bei sehr häufig genutzten Dokumenten). Ist
+ein Code schon vergeben, zeigt der Dialog an, von welchem Eintrag. Leer
+lassen vergibt beim nächsten Öffnen automatisch wieder einen neuen,
+zufälligen Code.
 
 ## Erweiterte Ansicht
 
@@ -65,12 +84,13 @@ durchzuhangeln.
 
 Zusätzlich öffnet **Win+Alt+L** das Menü jederzeit direkt in der Erweiterten
 Ansicht — unabhängig vom sonst eingestellten Standardmodus, ganz ohne Klick
-auf das Taskleisten-Icon. Die Tastenkombination wurde bewusst so gewählt,
-weil Windows unter den Win+Alt-Kombinationen kaum etwas belegt (nur wenige
-Xbox-Game-Bar-Kürzel wie R/G/B/Enter/PrtScn und D für Datum/Uhrzeit) — L ist
-frei und mit „Launcher" leicht zu merken. Lässt sich in `Program.cs`
-(`VK_L`, `MOD_WIN`/`MOD_ALT`) auf eine andere Taste ändern, falls sie doch
-mit einem anderen Programm kollidiert.
+auf das Taskleisten-Icon. Die Tastenkombinationen (L hier, Y für die
+Schnellzugriffscodes) wurden bewusst so gewählt, weil Windows unter den
+Win+Alt-Kombinationen kaum etwas belegt (nur wenige Xbox-Game-Bar-Kürzel wie
+R/G/B/Enter/PrtScn und D für Datum/Uhrzeit) — beide sind frei und leicht zu
+merken („Launcher", „Code eingeben"). Lassen sich in `Program.cs`
+(`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) auf andere Tasten ändern, falls sie doch
+mit einem anderen Programm kollidieren.
 
 ## Auf der Taskleiste platzieren
 

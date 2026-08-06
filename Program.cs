@@ -71,9 +71,18 @@ internal static class Program
               genau in dieser Ebene.
             - Rechtsklick auf einen Eintrag oder Ordner öffnet ihn zum
               Umbenennen, Ziel ändern, manuellen Einsortieren (Rauf/Runter)
-              oder Löschen.
+              oder Löschen. Dort lässt sich bei Dateien auch der 3-stellige
+              Schnellzugriffscode ändern (leer lassen = automatische
+              Neuvergabe; ist ein Code schon vergeben, wird angezeigt an wen).
             - "Erweiterte Ansicht" (unten im Menü) zeigt den Inhalt der
               obersten Ordnerebene direkt im Hauptmenü statt in Untermenüs.
+
+            Jede Datei bekommt automatisch einen eindeutigen 3-stelligen Code
+            (unsichtbar im Dateinamen als "[123]"-Suffix, im Menü ausgeblendet).
+            Win+Alt+Y öffnet das Menü mit einem bereits fokussierten
+            Eingabefeld dafür - Code tippen und Enter öffnet den Eintrag
+            direkt, egal wie tief er verschachtelt ist.
+            Win+Alt+L öffnet das Menü direkt in der Erweiterten Ansicht.
 
             Änderungen wirken sofort, das Menü wird bei jedem Klick neu gelesen.
             """);
@@ -96,14 +105,19 @@ internal sealed class MainForm : Form
     private const int WM_HOTKEY = 0x0312;
 
     // Win+Alt+L ("L" wie Launcher) öffnet das Menü in der Erweiterten Ansicht,
-    // unabhängig vom sonst eingestellten Standardmodus. Unter den Win+Alt-
-    // Kombinationen sind nur wenige von Windows selbst belegt (R/G/B/Enter/
-    // PrtScn für die Xbox Game Bar, D für Datum/Uhrzeit) - L ist frei.
+    // unabhängig vom sonst eingestellten Standardmodus. Win+Alt+Y öffnet das
+    // Menü ganz normal, aber mit einem bereits fokussierten Eingabefeld für
+    // 3-stellige Dokument-Codes (Enter öffnet den Treffer direkt). Unter den
+    // Win+Alt-Kombinationen sind nur wenige von Windows selbst belegt
+    // (R/G/B/Enter/PrtScn für die Xbox Game Bar, D für Datum/Uhrzeit) -
+    // L und Y sind frei.
     private const int ExpandedViewHotkeyId = 1;
+    private const int CodeSearchHotkeyId = 2;
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_WIN = 0x0008;
     private const uint MOD_NOREPEAT = 0x4000;
     private const uint VK_L = 0x4C;
+    private const uint VK_Y = 0x59;
 
     private readonly EventWaitHandle _showMenuEvent;
     private ContextMenuStrip? _menu;
@@ -140,11 +154,13 @@ internal sealed class MainForm : Form
         // wird bewusst stillschweigend ignoriert - die App bleibt trotzdem
         // über den Taskleisten-Klick voll nutzbar.
         RegisterHotKey(Handle, ExpandedViewHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_L);
+        RegisterHotKey(Handle, CodeSearchHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_Y);
     }
 
     protected override void OnHandleDestroyed(EventArgs e)
     {
         UnregisterHotKey(Handle, ExpandedViewHotkeyId);
+        UnregisterHotKey(Handle, CodeSearchHotkeyId);
         base.OnHandleDestroyed(e);
     }
 
@@ -160,7 +176,7 @@ internal sealed class MainForm : Form
         {
             if (_showMenuEvent.WaitOne(250) && !IsDisposed)
             {
-                try { Invoke(new MethodInvoker(ShowMenu)); }
+                try { Invoke(new Action(ShowMenu)); }
                 catch (ObjectDisposedException) { }
                 catch (InvalidOperationException) { }
             }
@@ -181,13 +197,19 @@ internal sealed class MainForm : Form
             return;
         }
 
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == CodeSearchHotkeyId)
+        {
+            ShowMenu(showCodeBox: true);
+            return;
+        }
+
         base.WndProc(ref m);
     }
 
-    private void ShowMenu(bool forceExpanded = false)
+    private void ShowMenu(bool forceExpanded = false, bool showCodeBox = false)
     {
         _menu?.Dispose();
-        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true, forceExpanded);
+        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true, forceExpanded, showCodeBox);
 
         var pos = Cursor.Position;
         var area = Screen.FromPoint(pos).WorkingArea;
@@ -262,6 +284,90 @@ internal static class OrderPrefixHelper
     {
         var m = Regex.Match(name);
         return m.Success ? m.Value : "";
+    }
+}
+
+/// <summary>
+/// Vergibt automatisch eindeutige 3-stellige Codes an alle Dokument-Dateien
+/// (nicht an Ordner), unsichtbar eingebettet als " [123]"-Suffix direkt im
+/// Dateinamen - dadurch bleibt der Code beim Umbenennen/manuellen Sortieren
+/// automatisch erhalten, ganz ohne separate Zuordnungstabelle. Für den
+/// schnellen Zugriff per Tastatur (Win+Alt+Y, siehe MainForm).
+/// </summary>
+internal static class CodeRegistry
+{
+    private static readonly Regex Suffix = new(@"\s*\[(\d{3})\]$", RegexOptions.Compiled);
+
+    public static string? ExtractCode(string baseNameWithoutExtension)
+    {
+        var m = Suffix.Match(baseNameWithoutExtension);
+        return m.Success ? m.Groups[1].Value : null;
+    }
+
+    public static string StripSuffix(string baseNameWithoutExtension)
+        => Suffix.Replace(baseNameWithoutExtension, "");
+
+    /// <summary>Vergibt fehlende Codes an alle Dateien unterhalb von root (rekursiv). Läuft bei jedem Menüaufbau.</summary>
+    public static void EnsureAllAssigned(string root)
+    {
+        if (!Directory.Exists(root)) return;
+
+        List<string> files;
+        try { files = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)]; }
+        catch (UnauthorizedAccessException) { return; }
+
+        var used = new HashSet<string>();
+        foreach (var file in files)
+        {
+            var code = ExtractCode(Path.GetFileNameWithoutExtension(file));
+            if (code is not null) used.Add(code);
+        }
+
+        foreach (var file in files)
+        {
+            string name = Path.GetFileName(file);
+            if (name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) continue;
+
+            string baseName = Path.GetFileNameWithoutExtension(file);
+            string withoutOrderPrefix = OrderPrefixHelper.Strip(baseName);
+            if (withoutOrderPrefix.Length > 0 && withoutOrderPrefix.All(c => c == '-')) continue; // Trennlinien-Dateien
+            if (ExtractCode(baseName) is not null) continue; // hat schon einen Code
+
+            string code = NextFreeCode(used);
+            string ext = Path.GetExtension(file);
+            string dir = Path.GetDirectoryName(file)!;
+            string newPath = Path.Combine(dir, $"{baseName} [{code}]{ext}");
+
+            try
+            {
+                File.Move(file, newPath);
+                IconCache.Invalidate(file);
+            }
+            catch
+            {
+                // Datei evtl. gerade in Benutzung o.ä. - beim nächsten Öffnen erneut versuchen.
+            }
+        }
+    }
+
+    public static string? FindByCode(string root, string code)
+    {
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+                if (ExtractCode(Path.GetFileNameWithoutExtension(file)) == code)
+                    return file;
+        }
+        catch (UnauthorizedAccessException) { }
+        return null;
+    }
+
+    private static string NextFreeCode(HashSet<string> used)
+    {
+        string code;
+        do { code = Random.Shared.Next(0, 1000).ToString("000"); }
+        while (!used.Add(code));
+        return code;
     }
 }
 
@@ -346,8 +452,10 @@ internal static class MenuBuilder
     private static readonly Font MenuFont = new("Segoe UI", 11.5f);
     private static readonly Size MenuImageSize = new(28, 28);
 
-    public static ContextMenuStrip Build(string root, bool showExit, bool forceExpanded = false)
+    public static ContextMenuStrip Build(string root, bool showExit, bool forceExpanded = false, bool showCodeBox = false)
     {
+        CodeRegistry.EnsureAllAssigned(root);
+
         var menu = new ContextMenuStrip
         {
             Font = MenuFont,
@@ -355,6 +463,29 @@ internal static class MenuBuilder
             ShowImageMargin = true,
             RenderMode = ToolStripRenderMode.System
         };
+
+        if (showCodeBox)
+        {
+            var codeBox = new ToolStripTextBox { Width = 200 };
+            codeBox.Control.PlaceholderText = "Code eingeben und Enter…";
+            codeBox.KeyDown += (_, e) =>
+            {
+                if (e.KeyCode != Keys.Enter) return;
+                e.SuppressKeyPress = true;
+
+                string code = codeBox.Text.Trim();
+                if (code.Length != 3 || !code.All(char.IsDigit)) return;
+
+                string? target = CodeRegistry.FindByCode(root, code);
+                if (target is null) return;
+
+                menu.Close();
+                Launcher.Open(target);
+            };
+            menu.Items.Add(codeBox);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Opened += (_, _) => codeBox.Focus();
+        }
 
         menu.Items.Add(CreatePasteItem(root));
         menu.Items.Add(new ToolStripSeparator());
@@ -550,17 +681,22 @@ internal static class MenuBuilder
         return item;
     }
 
-    private static string DisplayName(string name)
+    /// <summary>Öffentlich, damit z. B. EntryEditForm dieselbe Anzeigelogik für
+    /// Meldungen ("Code bereits vergeben an ...") wiederverwenden kann.</summary>
+    public static string DisplayName(string name)
     {
+        var ext = Path.GetExtension(name);
+        bool isShortcutType = ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                               ext.Equals(".url", StringComparison.OrdinalIgnoreCase);
+
+        string withoutExt = Path.GetFileNameWithoutExtension(name);
+        withoutExt = OrderPrefixHelper.Strip(withoutExt);
+        withoutExt = CodeRegistry.StripSuffix(withoutExt);
+
         // Endung nur bei Verknüpfungen entfernen - bei echten Dateien ist sie
         // eine nützliche Information.
-        var ext = Path.GetExtension(name);
-        if (ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
-            ext.Equals(".url", StringComparison.OrdinalIgnoreCase))
-            name = Path.GetFileNameWithoutExtension(name);
-
-        name = OrderPrefixHelper.Strip(name);
-        return name.Replace("&", "&&"); // & sonst als Tastenkürzel interpretiert
+        string shown = isShortcutType ? withoutExt : withoutExt + ext;
+        return shown.Replace("&", "&&"); // & sonst als Tastenkürzel interpretiert
     }
 }
 
@@ -786,6 +922,7 @@ internal sealed class NamePromptForm : Form
 internal sealed class EntryEditForm : Form
 {
     private readonly TextBox _nameBox;
+    private readonly TextBox? _codeBox;
     private readonly TextBox? _targetBox;
     private readonly Button _up;
     private readonly Button _down;
@@ -813,7 +950,7 @@ internal sealed class EntryEditForm : Form
         MaximizeBox = false;
         ShowInTaskbar = false;
         Font = new Font("Segoe UI", 10f);
-        ClientSize = new Size(440, isShortcut ? 162 : 106);
+        ClientSize = new Size(440, 300); // wird unten anhand der tatsächlich vorhandenen Zeilen korrigiert
 
         var nameLabel = new Label { Text = "Name:", AutoSize = true, Location = new Point(12, 15) };
         string rawBase = isFolder ? Path.GetFileName(path) : Path.GetFileNameWithoutExtension(path);
@@ -822,7 +959,7 @@ internal sealed class EntryEditForm : Form
             Location = new Point(12, 35),
             Width = 356,
             Height = 23,
-            Text = OrderPrefixHelper.Strip(rawBase)
+            Text = CodeRegistry.StripSuffix(OrderPrefixHelper.Strip(rawBase))
         };
 
         _up = new Button { Text = "▲", Location = new Point(374, 35), Width = 26, Height = 23 };
@@ -832,15 +969,33 @@ internal sealed class EntryEditForm : Form
 
         Controls.AddRange([nameLabel, _nameBox, _up, _down]);
 
-        int buttonsY = 68;
+        int y = 68;
+
+        if (!isFolder)
+        {
+            string currentCode = CodeRegistry.ExtractCode(OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(path))) ?? "";
+            var codeLabel = new Label { Text = "Code:", AutoSize = true, Location = new Point(12, y + 3) };
+            _codeBox = new TextBox { Location = new Point(60, y), Width = 50, Height = 23, MaxLength = 3, Text = currentCode };
+            var codeHint = new Label
+            {
+                Text = "3 Ziffern - leer lassen für automatische Neuvergabe",
+                AutoSize = true,
+                Location = new Point(120, y + 4),
+                ForeColor = SystemColors.GrayText,
+                Font = new Font(Font.FontFamily, 8f)
+            };
+            Controls.AddRange([codeLabel, _codeBox, codeHint]);
+            y += 33;
+        }
 
         if (isShortcut)
         {
             bool isUrl = _extension.Equals(".url", StringComparison.OrdinalIgnoreCase);
-            var targetLabel = new Label { Text = isUrl ? "Link:" : "Ziel:", AutoSize = true, Location = new Point(12, 68) };
+            var targetLabel = new Label { Text = isUrl ? "Link:" : "Ziel:", AutoSize = true, Location = new Point(12, y) };
+            y += 20;
             _targetBox = new TextBox
             {
-                Location = new Point(12, 88),
+                Location = new Point(12, y),
                 Width = isUrl ? 416 : 382,
                 Height = 23,
                 Text = ReadTarget(path, _extension)
@@ -850,7 +1005,7 @@ internal sealed class EntryEditForm : Form
 
             if (!isUrl)
             {
-                var browse = new Button { Text = "…", Location = new Point(398, 87), Width = 30, Height = 25 };
+                var browse = new Button { Text = "…", Location = new Point(398, y - 1), Width = 30, Height = 25 };
                 browse.Click += (_, _) =>
                 {
                     using var dlg = new OpenFileDialog { Title = "Ziel auswählen" };
@@ -859,8 +1014,11 @@ internal sealed class EntryEditForm : Form
                 Controls.Add(browse);
             }
 
-            buttonsY = 124;
+            y += 36;
         }
+
+        int buttonsY = y;
+        ClientSize = new Size(440, buttonsY + 46);
 
         var save = new Button { Text = "Speichern", DialogResult = DialogResult.OK, Location = new Point(160, buttonsY), Width = 90 };
         var delete = new Button { Text = "Löschen", Location = new Point(254, buttonsY), Width = 80 };
@@ -927,11 +1085,31 @@ internal sealed class EntryEditForm : Form
     private void Apply()
     {
         string newBaseName = string.IsNullOrWhiteSpace(_nameBox.Text)
-            ? Path.GetFileNameWithoutExtension(_currentPath)
+            ? CodeRegistry.StripSuffix(OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(_currentPath)))
             : SanitizeFileName(_nameBox.Text.Trim());
 
+        string codeSuffix = "";
+        if (_codeBox is not null)
+        {
+            string enteredCode = _codeBox.Text.Trim();
+            if (enteredCode.Length > 0)
+            {
+                if (enteredCode.Length != 3 || !enteredCode.All(char.IsDigit))
+                    throw new InvalidOperationException("Der Code muss aus genau 3 Ziffern bestehen (oder leer bleiben für automatische Neuvergabe).");
+
+                string? owner = CodeRegistry.FindByCode(Program.MenuRoot, enteredCode);
+                if (owner is not null && !string.Equals(owner, _currentPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    string ownerLabel = MenuBuilder.DisplayName(Path.GetFileName(owner));
+                    throw new InvalidOperationException($"Code {enteredCode} ist bereits vergeben an \"{ownerLabel}\".");
+                }
+
+                codeSuffix = $" [{enteredCode}]";
+            }
+        }
+
         string parent = Path.GetDirectoryName(_currentPath)!;
-        string newFileName = _orderPrefix + newBaseName + (_isFolder ? "" : _extension);
+        string newFileName = _orderPrefix + newBaseName + codeSuffix + (_isFolder ? "" : _extension);
         string newPath = Path.Combine(parent, newFileName);
 
         if (!string.Equals(_currentPath, newPath, StringComparison.Ordinal))
