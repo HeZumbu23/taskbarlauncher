@@ -176,7 +176,7 @@ internal sealed class MainForm : Form
         {
             if (_showMenuEvent.WaitOne(250) && !IsDisposed)
             {
-                try { Invoke(new Action(ShowMenu)); }
+                try { Invoke(new Action(() => ShowMenu())); }
                 catch (ObjectDisposedException) { }
                 catch (InvalidOperationException) { }
             }
@@ -483,7 +483,7 @@ internal static class MenuBuilder
         if (showCodeBox)
         {
             var codeBox = new ToolStripTextBox { Width = 200 };
-            codeBox.Control.PlaceholderText = "Code eingeben und Enter…";
+            ((TextBox)codeBox.Control).PlaceholderText = "Code eingeben und Enter…";
             codeBox.KeyDown += (_, e) =>
             {
                 if (e.KeyCode != Keys.Enter) return;
@@ -750,7 +750,7 @@ internal static class ClipboardPaste
             if (Clipboard.ContainsFileDropList())
             {
                 var created = new List<string>();
-                foreach (string path in Clipboard.GetFileDropList())
+                foreach (string? path in Clipboard.GetFileDropList())
                 {
                     if (string.IsNullOrWhiteSpace(path) || !(File.Exists(path) || Directory.Exists(path))) continue;
                     created.Add(PasteFile(targetFolder, path));
