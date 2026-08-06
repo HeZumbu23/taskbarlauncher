@@ -72,6 +72,21 @@ Windows fertig geladen hat, verschmilzt der Autostart-Prozess mit dem
 angehefteten Icon zu einem einzigen Button — jeder Klick öffnet ab dann
 sofort das Menü, ganz ohne Verzögerung.
 
+## Immer nur eine Instanz
+
+Ein benannter Mutex verhindert einen zweiten Prozess von vornherein. Startet
+man die App trotzdem ein zweites Mal (z. B. per Doppelklick oder aus dem
+Startmenü, während sie schon im Hintergrund läuft), beendet sich dieser
+zweite Versuch sofort wieder — signalisiert der bereits laufenden Instanz
+aber vorher, das Menü zu zeigen. Der Klick geht also nie ins Leere.
+
+## Icon
+
+`app.ico` ist im Projekt hinterlegt und wird über
+`<ApplicationIcon>` in `TaskbarLauncher.csproj` in die `.exe` eingebettet.
+Für ein eigenes Icon einfach `app.ico` ersetzen (mehrere Auflösungen, min.
+16×16 bis 256×256, empfohlen).
+
 ## Mögliche Erweiterungen
 
 - Globaler Hotkey über `RegisterHotKey`

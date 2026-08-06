@@ -9,6 +9,7 @@
     <RootNamespace>TaskbarLauncher</RootNamespace>
     <AssemblyName>TaskbarLauncher</AssemblyName>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <ApplicationIcon>app.ico</ApplicationIcon>
 
     <!-- Einzelne, eigenständige .exe ohne separat installiertes .NET -->
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

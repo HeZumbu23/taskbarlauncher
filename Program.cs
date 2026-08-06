@@ -12,6 +12,7 @@ internal static class Program
         "TaskbarLauncher", "Menue");
 
     private const string SingleInstanceMutexName = "TaskbarLauncher-9F1E2C3B-SingleInstance";
+    private const string ShowMenuEventName = "TaskbarLauncher-9F1E2C3B-ShowMenu";
 
     // Von der Autostart-Verknüpfung gesetzt, damit der stille Start beim
     // Anmelden nicht sofort das Menü aufklappt (siehe MainForm.OnShown).
@@ -21,7 +22,16 @@ internal static class Program
     private static void Main(string[] args)
     {
         using var mutex = new Mutex(true, SingleInstanceMutexName, out bool createdNew);
-        if (!createdNew) return; // läuft bereits - das angeheftete Icon zeigt die laufende Instanz
+        using var showMenuEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowMenuEventName);
+
+        if (!createdNew)
+        {
+            // Es läuft bereits eine Instanz (z. B. per Autostart). Statt eine
+            // zweite zu starten, bekommt die laufende einfach den Auftrag,
+            // das Menü zu zeigen - der Klick geht so nie ins Leere.
+            showMenuEvent.Set();
+            return;
+        }
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -30,7 +40,7 @@ internal static class Program
         EnsureMenuFolder();
 
         bool startedSilently = args.Any(a => a.Equals(StartupArg, StringComparison.OrdinalIgnoreCase));
-        Application.Run(new MainForm(startedSilently));
+        Application.Run(new MainForm(startedSilently, showMenuEvent));
     }
 
     private static void EnsureMenuFolder()
@@ -73,10 +83,13 @@ internal sealed class MainForm : Form
     private const int WM_SYSCOMMAND = 0x0112;
     private const int SC_RESTORE = 0xF120;
 
+    private readonly EventWaitHandle _showMenuEvent;
     private ContextMenuStrip? _menu;
 
-    public MainForm(bool startedSilently)
+    public MainForm(bool startedSilently, EventWaitHandle showMenuEvent)
     {
+        _showMenuEvent = showMenuEvent;
+
         Text = "Launcher";
         Icon = LoadAppIcon();
         ShowInTaskbar = true;
@@ -93,6 +106,27 @@ internal sealed class MainForm : Form
             // laufendes, angeheftetes Icon) - direkt das Menü zeigen, statt
             // den Klick "wirkungslos" verpuffen zu lassen.
             Shown += (_, _) => ShowMenu();
+        }
+
+        new Thread(ListenForShowMenuRequests) { IsBackground = true }.Start();
+    }
+
+    /// <summary>
+    /// Läuft auf einem Hintergrund-Thread. Ein zweiter Programmstart (z. B.
+    /// Doppelklick, während bereits eine Instanz läuft) setzt dieses Signal
+    /// statt eine zweite Instanz zu starten - so öffnet auch dieser Klick
+    /// zuverlässig das Menü.
+    /// </summary>
+    private void ListenForShowMenuRequests()
+    {
+        while (!IsDisposed)
+        {
+            if (_showMenuEvent.WaitOne(250) && !IsDisposed)
+            {
+                try { Invoke(new MethodInvoker(ShowMenu)); }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
+            }
         }
     }
 
