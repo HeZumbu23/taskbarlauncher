@@ -1,171 +1,125 @@
 # TaskbarLauncher
 
-Ein hierarchisches Kontextmenü für die Windows-Taskleiste, gespeist direkt aus
-einer Ordnerstruktur im Dateisystem. Kein eigenes Menü-Format, keine
-Konfigurationsdatei — ein Ordner *ist* das Menü.
+**Click one icon in your Windows 11 taskbar. Get your entire folder structure as a menu.**
 
-- Unterordner → Untermenü (beliebig tief verschachtelt)
-- Verknüpfung (`.lnk`) oder Internetlink (`.url`) → Menüeintrag
-- beliebige andere Datei → Menüeintrag, öffnet wie im Explorer per Doppelklick
-- Datei namens `---` → Trennlinie
-
-Gepflegt wird das Menü im Explorer per Drag & Drop; Änderungen wirken sofort,
-da der Ordner bei jedem Klick neu eingelesen wird. Zusätzlich lässt sich das
-Menü auch direkt aus sich selbst heraus pflegen (siehe unten): neue
-Verknüpfungen aus der Zwischenablage einfügen, bestehende Einträge per
-Rechtsklick umbenennen/Ziel ändern/löschen, und die Reihenfolge von Hand
-festlegen.
-
-Die Einträge sind bewusst groß gehalten (größere Schrift, größere Icons als
-Windows-Standardmenüs) für einen bequemen Treffer auch mit der Maus aus der
-Taskleiste heraus.
-
-## Bauen
-
-Voraussetzung: [.NET 8 SDK](https://dotnet.microsoft.com/download), Windows.
+No config file, no database, no drag-and-drop editor to learn — a folder *is* the menu. Organize it exactly like any other folder on your PC, and TaskbarLauncher turns it into a fast, hierarchical launcher that lives in your taskbar.
 
 ```
+%AppData%\TaskbarLauncher\Menue\
+├── 01 Projects\
+│   ├── Client Report.lnk
+│   └── Roadmap.url
+├── 02 Links\
+│   └── Design System.url
+└── Notes.txt
+```
+
+→ click the taskbar icon → the same tree, as a menu.
+
+---
+
+## Why this exists
+
+Windows has no built-in way to turn a folder tree into a taskbar menu. TaskbarLauncher is a small, self-contained .NET 8 app that does exactly that — nothing more. It stays out of the way: no tray icon, no separate window, just one ordinary taskbar button.
+
+## Features
+
+**📁 The filesystem is the UI**
+Subfolders become submenus, `.lnk`/`.url` files become entries, any other file opens like a double-click in Explorer. Edit the folder in Explorer and the menu updates on the next click — no restart needed.
+
+**🖱️ Built for taskbar clicks**
+Big font (11.5pt) and big icons (28px) — easy to hit with a mouse from a small taskbar button. One click on a completely ordinary, pinnable taskbar icon opens the menu instantly (see [How the taskbar icon works](#how-the-taskbar-icon-works) for the trick behind that).
+
+**✏️ Manage the menu from the menu itself**
+- **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Paste from clipboard" in any menu level, and a shortcut appears right there.
+- **Right-click any entry or folder** to rename it, change its target (`.lnk`/`.url`), delete it, or move it up/down among its siblings.
+- Renaming/reordering never touches the visible menu — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
+
+**🔲 Expanded View — a full tile grid**
+Toggle "Expanded View" for a completely different way to browse: a borderless tile grid (up to 9×9 tiles, icon + label, scrollable beyond that) instead of nested menus. Click a folder tile to drill in, "Back" to go up, right-click to edit — same actions, bigger canvas.
+
+**🔢 Quick-access codes**
+Every file automatically gets a unique 3-digit code, invisibly embedded in its filename (`Report [117].pdf`) so it survives renames and reordering without a separate lookup table. Press **Win+Alt+Y**, type the code, hit Enter — the matching entry opens instantly, no matter how deep it's nested.
+
+**⌨️ Global hotkeys, no taskbar click needed**
+`Win+Alt+L` jumps straight to the tile grid; `Win+Alt+Y` opens the menu with the code box already focused. See the [shortcuts table](#keyboard-shortcuts) below.
+
+**🚀 One instance, always ready**
+A named mutex keeps a second launch from ever starting — it just tells the running instance to show the menu instead, so a stray double-click never does nothing.
+
+---
+
+## Getting started
+
+**Requirements:** [.NET 8 SDK](https://dotnet.microsoft.com/download), Windows 11.
+
+```powershell
 dotnet publish -c Release
 ```
 
-Die eigenständige `TaskbarLauncher.exe` landet unter
-`bin\Release\net8.0-windows\win-x64\publish\`.
+The self-contained `TaskbarLauncher.exe` lands in `bin\Release\net8.0-windows\win-x64\publish\`.
 
-### Deploy-Skript
+### Pin it to the taskbar
 
-Für die lokale Entwicklung: `deploy.ps1` beendet eine laufende Instanz,
-zieht den neuesten Stand, baut neu und startet die App wieder — alles in
-einem Schritt.
+1. Run `TaskbarLauncher.exe` once (double-click). The first click shows the menu right away; the app then keeps running, minimized, in the background — its taskbar button stays put.
+2. Right-click that button → **"Pin to taskbar"**.
+3. Done. Every further click on the pinned icon opens the menu directly, for as long as the app is running.
+
+For the pinned icon to keep working after a reboot, also set up autostart (below) — otherwise the first click after a restart just relaunches the app instead of opening the menu.
+
+### Autostart
+
+`Win+R` → `shell:startup` → add a shortcut to `TaskbarLauncher.exe`, and append `--startup` to its **Target** field:
+
+```
+"C:\Path\to\TaskbarLauncher.exe" --startup
+```
+
+This makes the app start silently on login instead of popping the menu open immediately. Since it's already running by the time you'd click the pinned icon, the two merge into a single, always-instant button.
+
+### Deploy script
+
+For local development: `deploy.ps1` stops a running instance, pulls the latest changes, rebuilds, and relaunches — all in one step.
 
 ```powershell
 .\deploy.ps1
 ```
 
-## Menü füllen
+---
 
-Beim ersten Start legt die App `%AppData%\TaskbarLauncher\Menue` an. Dorthin:
+## How the taskbar icon works
 
-- Dateien mit gedrückter **Alt**-Taste ziehen → erzeugt eine Verknüpfung
-  statt einer Kopie.
-- Links direkt aus der Browser-Adressleiste in den Ordner ziehen → Windows
-  legt eine `.url`-Datei an.
-- Unterordner anlegen → werden automatisch zu Untermenüs.
+TaskbarLauncher shows no window and no tray icon. It runs permanently minimized in the background, which makes it appear as a completely ordinary taskbar entry — like any other open app. When you click that button, Windows first sends the minimized window a `WM_SYSCOMMAND`/`SC_RESTORE` message *before* actually restoring it. TaskbarLauncher intercepts exactly that message and opens the menu instead of letting the restore happen. The result: one normal, pinnable icon whose click opens the menu instantly — no tray, no relaunch delay.
 
-Oder direkt aus dem Menü heraus, ohne den Explorer zu öffnen:
+## Filling the menu
 
-- **Aus Zwischenablage einfügen** (oben in jeder Menü-Ebene, egal ob Hauptmenü
-  oder ein Untermenü): Datei/Ordner im Explorer kopieren (Strg+C) und diesen
-  Menüpunkt klicken → legt eine `.lnk`-Verknüpfung genau in dieser Ebene an.
-  Bereits kopierte `.lnk`/`.url`-Dateien werden 1:1 übernommen. Kopierter
-  Text mit einer URL wird nach kurzer Namensabfrage zu einer `.url`-Datei.
-- **Rechtsklick auf einen Eintrag oder Ordner** öffnet einen kleinen Dialog
-  zum Umbenennen, bei Verknüpfungen/Links zum Ändern des Ziels, zum manuellen
-  Verschieben (▲/▼ — sortiert die gesamte Ebene neu ein und vergibt dafür
-  durchgängige Reihenfolge-Präfixe wie `01 `, `02 `, …), zum Ändern des
-  Schnellzugriffscodes (siehe unten) und zum Löschen.
+TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate it however you like:
 
-## Schnellzugriffscodes (Win+Alt+Y)
+- Drag files in while holding **Alt** → creates a shortcut instead of a copy.
+- Drag a link straight from your browser's address bar → Windows creates a `.url` file.
+- Create subfolders → they become submenus automatically.
+- Or skip Explorer entirely and use **Paste from clipboard** / **right-click → edit** directly from the menu (see Features above).
 
-Jede Datei bekommt automatisch einen eindeutigen 3-stelligen Code, unsichtbar
-im Dateinamen als `[123]`-Suffix hinterlegt (im Menü selbst nicht sichtbar —
-er steht nur im tatsächlichen Dateinamen, damit er Umbenennen und manuelles
-Sortieren automatisch übersteht, ganz ohne separate Zuordnungstabelle).
+## Keyboard shortcuts
 
-**Win+Alt+Y** öffnet das Menü ganz normal, aber mit einem bereits
-fokussierten Eingabefeld ganz oben. Code tippen, Enter drücken → der
-zugehörige Eintrag öffnet sich sofort, egal wie tief er verschachtelt ist —
-kein Durchklicken nötig.
+| Shortcut | Action |
+|---|---|
+| `Win+Alt+L` | Open the tile grid (Expanded View) directly, regardless of the default mode |
+| `Win+Alt+Y` | Open the classic menu with the quick-access code box focused |
+| *(taskbar click)* | Open the menu in whichever mode is currently the default |
 
-Codes lassen sich im Rechtsklick-Bearbeiten-Dialog auch von Hand setzen
-(nützlich für gut merkbare Codes bei sehr häufig genutzten Dokumenten). Ist
-ein Code schon vergeben, zeigt der Dialog an, von welchem Eintrag. Leer
-lassen vergibt beim nächsten Öffnen automatisch wieder einen neuen,
-zufälligen Code.
+`Win+Alt+L`/`Win+Alt+Y` were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "code"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
 
-## Erweiterte Ansicht (Kachelraster)
+## Customizing the icon
 
-Normalerweise sind Ordner Untermenüs, die man erst aufklappen muss. Der
-Menüpunkt **„Erweiterte Ansicht"** (unten im Menü, ein an/aus-Schalter)
-ersetzt das Menü stattdessen durch ein eigenes Fenster mit einem großen
-Kachelraster — bis zu 9×9 Kacheln sichtbar (Icon + Name), darüber hinaus
-scrollbar. Klick auf eine Datei-Kachel öffnet sie; Klick auf eine
-Ordner-Kachel navigiert im *selben* Fenster hinein, „Zurück" oben links geht
-wieder eine Ebene hoch. Auch hier: Rechtsklick auf eine Kachel bearbeitet
-sie genauso wie im normalen Menü, und „Einfügen" oben rechts fügt aus der
-Zwischenablage in den gerade angezeigten Ordner ein.
+`app.ico` is embedded both as the Win32 application icon and as a .NET resource (so the app can load the full multi-resolution image at runtime instead of a single upscaled size — otherwise the taskbar icon looks blurry). To use your own icon, replace `app.ico` with a multi-resolution `.ico` (16×16 up to 256×256 recommended).
 
-Ist „Erweiterte Ansicht" als Standard aktiviert, öffnet ein Klick auf das
-Taskleisten-Icon künftig direkt das Kachelraster statt des klassischen
-Menüs. Zum Zurückschalten: **Win+Alt+Y** öffnet immer das klassische Menü
-(dort lässt sich die Checkbox wieder ausschalten) — praktisch als
-Rückfalloption, falls das Kachelraster gerade nicht passt.
+## Ideas for further extension
 
-Zusätzlich öffnet **Win+Alt+L** das Kachelraster jederzeit direkt,
-unabhängig vom sonst eingestellten Standardmodus, ganz ohne Klick auf das
-Taskleisten-Icon. Die Tastenkombinationen (L hier, Y für die
-Schnellzugriffscodes) wurden bewusst so gewählt, weil Windows unter den
-Win+Alt-Kombinationen kaum etwas belegt (nur wenige Xbox-Game-Bar-Kürzel wie
-R/G/B/Enter/PrtScn und D für Datum/Uhrzeit) — beide sind frei und leicht zu
-merken („Launcher", „Code eingeben"). Lassen sich in `Program.cs`
-(`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) auf andere Tasten ändern, falls sie doch
-mit einem anderen Programm kollidieren.
+- Fuzzy/typeahead search across all entries
+- Pin recently-used entries to the top
+- Per-folder custom accent colors in the tile grid
 
-## Auf der Taskleiste platzieren
+---
 
-Die App zeigt kein Fenster und kein Tray-Symbol. Sie läuft dauerhaft
-minimiert im Hintergrund und ist dadurch als ganz normaler Eintrag in der
-Taskleiste sichtbar — wie jede andere offene App. Ein Klick auf diesen
-Button fängt Windows' „Fenster wiederherstellen"-Befehl ab, bevor er
-passiert, und öffnet stattdessen sofort das Menü. Kein Doppelklick-Delay,
-kein Tray, kein Neustart pro Klick.
-
-Einrichtung:
-
-1. `TaskbarLauncher.exe` einmal manuell starten (Doppelklick). Der erste
-   Klick zeigt gleich das Menü; die App bleibt danach minimiert im
-   Hintergrund aktiv — der Taskleisten-Button bleibt stehen.
-2. Auf diesen Button rechtsklicken → **„An Taskleiste anheften"**.
-3. Fertig. Jeder weitere Klick auf das angeheftete Icon öffnet direkt das
-   Menü, solange die App läuft.
-
-Für ein dauerhaft angeheftetes, funktionierendes Icon auch nach einem
-Neustart braucht es zusätzlich den Autostart (nächster Abschnitt) — sonst
-zeigt ein Klick nach einem Neustart erst wieder nur den Start-Klick
-(App startet neu, zeigt das Menü, bleibt dann laufen).
-
-## Autostart
-
-`Win+R` → `shell:startup` → dort eine Verknüpfung auf `TaskbarLauncher.exe`
-anlegen und in deren Eigenschaften beim Feld „Ziel" ein Leerzeichen gefolgt
-von `--startup` anhängen, z. B.:
-
-```
-"C:\Pfad\zu\TaskbarLauncher.exe" --startup
-```
-
-Das Argument sorgt dafür, dass die App beim Anmelden lautlos im Hintergrund
-startet, statt sofort das Menü aufzuklappen. Da es bereits läuft, sobald
-Windows fertig geladen hat, verschmilzt der Autostart-Prozess mit dem
-angehefteten Icon zu einem einzigen Button — jeder Klick öffnet ab dann
-sofort das Menü, ganz ohne Verzögerung.
-
-## Immer nur eine Instanz
-
-Ein benannter Mutex verhindert einen zweiten Prozess von vornherein. Startet
-man die App trotzdem ein zweites Mal (z. B. per Doppelklick oder aus dem
-Startmenü, während sie schon im Hintergrund läuft), beendet sich dieser
-zweite Versuch sofort wieder — signalisiert der bereits laufenden Instanz
-aber vorher, das Menü zu zeigen. Der Klick geht also nie ins Leere.
-
-## Icon
-
-`app.ico` ist im Projekt hinterlegt und wird über
-`<ApplicationIcon>` in `TaskbarLauncher.csproj` in die `.exe` eingebettet.
-Für ein eigenes Icon einfach `app.ico` ersetzen (mehrere Auflösungen, min.
-16×16 bis 256×256, empfohlen).
-
-## Mögliche Erweiterungen
-
-- Globaler Hotkey über `RegisterHotKey`
-- Tipp-Suche über alle Einträge
-- Zuletzt benutzte Einträge oben anpinnen
+Built as a small, dependency-free WinForms app (.NET 8) — shortcut creation goes through the `WScript.Shell` COM automation object that ships with every Windows install, so there's nothing extra to install beyond the .NET runtime bundled into the published `.exe`.
