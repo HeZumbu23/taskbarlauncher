@@ -72,7 +72,7 @@ if ($Once) {
 }
 
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
-Write-Host "Watching branch '$branch' for new commits every $IntervalSeconds s. Press Ctrl+C to stop." -ForegroundColor Yellow
+Write-Host "Watching for new commits every $IntervalSeconds s. Press Ctrl+C to stop." -ForegroundColor Yellow
 
 while ($true) {
     git fetch origin $branch --quiet
@@ -85,7 +85,7 @@ while ($true) {
 
         if ($localHash -ne $remoteHash) {
             Write-Host ""
-            Write-Host "New commits on '$branch': $($localHash.Substring(0,7)) -> $($remoteHash.Substring(0,7))" -ForegroundColor Yellow
+            Write-Host "New commits detected: $($localHash.Substring(0,7)) -> $($remoteHash.Substring(0,7))" -ForegroundColor Yellow
             try {
                 Invoke-Deploy
             }
