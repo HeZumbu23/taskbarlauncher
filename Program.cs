@@ -967,11 +967,13 @@ internal sealed class TileGridForm : Form
     }
 
     /// <summary>
-    /// Baut die Abschnitte zunächst einspaltig über die volle Breite und
-    /// misst, ob das in die verfügbare Höhe passt. Falls nicht (und es
-    /// mehr als einen Abschnitt gibt), werden die Abschnitte stattdessen in
-    /// der Mitte geteilt und als zwei nebeneinander stehende Spalten
-    /// gerendert - das Raster scrollt nie.
+    /// Misst zuerst (über wegwerfbare Steuerelemente, nie einem Parent
+    /// zugeordnet), ob alle Abschnitte einspaltig über die volle Breite in
+    /// die verfügbare Höhe passen. Falls nicht (und es mehr als einen
+    /// Abschnitt gibt), werden sie in der Mitte geteilt und als zwei
+    /// nebeneinander stehende Spalten gerendert - das Raster scrollt nie.
+    /// Baut den eigentlichen Inhalt danach genau einmal, direkt in der
+    /// bereits feststehenden Spaltenzahl.
     /// </summary>
     private void RenderSections(List<Section> sections)
     {
@@ -981,19 +983,16 @@ internal sealed class TileGridForm : Form
         foreach (Control c in oldControls) c.Dispose();
 
         int fullWidth = Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2);
+        int estimatedHeight = MeasureSectionsHeight(sections, fullWidth);
 
-        var singleColumn = BuildColumnPanel(fullWidth);
-        RenderSectionsIntoColumn(singleColumn, fullWidth, sections);
-        singleColumn.PerformLayout();
-
-        if (sections.Count <= 1 || singleColumn.Height <= _flow.ClientSize.Height)
+        if (sections.Count <= 1 || estimatedHeight <= _flow.ClientSize.Height)
         {
-            _flow.Controls.Add(singleColumn);
+            var column = BuildColumnPanel(fullWidth);
+            RenderSectionsIntoColumn(column, fullWidth, sections);
+            _flow.Controls.Add(column);
         }
         else
         {
-            singleColumn.Dispose();
-
             int half = (sections.Count + 1) / 2;
             var left = sections.Take(half).ToList();
             var right = sections.Skip(half).ToList();
@@ -1023,6 +1022,46 @@ internal sealed class TileGridForm : Form
         }
 
         _flow.ResumeLayout();
+    }
+
+    /// <summary>
+    /// Summiert PreferredSize.Height über einzeln (und sofort wieder
+    /// entsorgte) aufgebaute Kontrollelemente. Bewusst KEINE verschachtelte
+    /// AutoSize-Höhenmessung über ein umschließendes Panel - das hat sich
+    /// bei nicht eingehängten Controls als unzuverlässig erwiesen (maß zu
+    /// niedrig, sodass echter Überlauf nicht erkannt wurde).
+    /// </summary>
+    private int MeasureSectionsHeight(List<Section> sections, int widthPx)
+    {
+        int total = 0;
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var s = sections[i];
+
+            if (s.Header is not null)
+            {
+                using var header = BuildGroupHeader(s.Header);
+                total += header.PreferredSize.Height + header.Margin.Vertical;
+            }
+
+            if (s.Message is not null)
+            {
+                using var info = InfoLabel(s.Message);
+                total += info.PreferredSize.Height + info.Margin.Vertical;
+            }
+            else
+            {
+                using var contentRow = BuildTileRow(s.Items!, widthPx);
+                total += contentRow.PreferredSize.Height + contentRow.Margin.Vertical;
+            }
+
+            if (i < sections.Count - 1)
+            {
+                using var sep = BuildSeparator(widthPx);
+                total += sep.Height + sep.Margin.Vertical;
+            }
+        }
+        return total;
     }
 
     private FlowLayoutPanel BuildColumnPanel(int widthPx) => new()
