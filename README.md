@@ -36,7 +36,7 @@ Big font (11.5pt) and big icons (28px) — easy to hit with a mouse from a small
 - Renaming/reordering never touches the visible menu — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
 
 **🔲 Expanded View — a full tile grid**
-Toggle "Expanded View" for a completely different way to browse: a borderless tile grid (large canvas, scrollable) instead of nested menus. The top level is grouped and visible right away — each folder shows up as a header with its contents laid out directly underneath, no clicking in required. Deeper folders still drill in on click, with "Back" to go up; right-click to edit, same as everywhere else.
+Toggle "Expanded View" for a completely different way to browse: a borderless, light-themed tile grid (large canvas, scrollable) instead of nested menus. The top level is grouped and visible right away — each folder shows up as a header with its contents laid out directly underneath, separated by thin dividers, no clicking in required. Deeper folders still drill in on click, with "Back" to go up; right-click to edit, same as everywhere else. Groups are sorted by how often their contents get opened, most-used first — no setup, it just learns from usage over time. Just start typing while the grid is open to filter down to matching tiles live, no search box needed (Escape clears the filter, or closes the grid if it's already empty).
 
 **🔎 Real-time search**
 Press **Win+Alt+Y**, start typing — every keystroke filters live across every file in the entire menu tree, no matter how deep it's nested. Arrow keys to move through results, Enter to open the selected one.
@@ -79,11 +79,15 @@ This makes the app start silently on login instead of popping the menu open imme
 
 ### Deploy script
 
-For local development: `deploy.ps1` stops a running instance, pulls the latest changes, rebuilds, and relaunches — all in one step.
+For local development: `deploy.ps1` watches the current branch and redeploys automatically whenever new commits land — no manual "pull, rebuild, relaunch" cycle.
 
 ```powershell
-.\deploy.ps1
+.\deploy.ps1                      # watch, checking every 60s (default)
+.\deploy.ps1 -IntervalSeconds 15  # check more often
+.\deploy.ps1 -Once                # deploy immediately, once, no watch loop
 ```
+
+It fetches on every interval but only stops the running instance, pulls, rebuilds, and relaunches when the remote branch actually has new commits — an unchanged remote is a silent no-op. Press Ctrl+C to stop watching.
 
 ---
 

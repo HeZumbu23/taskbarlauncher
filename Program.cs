@@ -295,6 +295,86 @@ internal static class Settings
     }
 }
 
+/// <summary>
+/// Zählt, wie oft ein Eintrag geöffnet wurde, persistiert als einfache
+/// "Anzahl&lt;TAB&gt;Schlüssel"-Textdatei. Der Schlüssel ist der relative Pfad ab
+/// dem Menü-Ordner mit entfernten Sortier-Präfixen ("01 " etc.) an jedem
+/// Segment - dadurch übersteht die Statistik das manuelle Umsortieren
+/// (das nur Präfixe ändert), nicht aber ein echtes Umbenennen.
+/// </summary>
+internal static class UsageStats
+{
+    private static readonly string FilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "TaskbarLauncher", "usage.txt");
+
+    private static Dictionary<string, int>? _cache;
+
+    public static void RecordOpen(string root, string fullPath)
+    {
+        var stats = Load();
+        string key = KeyFor(root, fullPath);
+        stats[key] = stats.GetValueOrDefault(key) + 1;
+        Save();
+    }
+
+    public static int GetCount(string root, string fullPath) =>
+        Load().GetValueOrDefault(KeyFor(root, fullPath), 0);
+
+    /// <summary>Summe aller Öffnungen von Dateien unterhalb von folder (rekursiv) - für die Gruppen-Sortierung.</summary>
+    public static int GetGroupTotal(string root, string folder)
+    {
+        int total = 0;
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                total += GetCount(root, file);
+        }
+        catch (UnauthorizedAccessException) { }
+        return total;
+    }
+
+    private static string KeyFor(string root, string fullPath)
+    {
+        string rel = Path.GetRelativePath(root, fullPath);
+        var segments = rel.Split(Path.DirectorySeparatorChar).Select(OrderPrefixHelper.Strip);
+        return string.Join('/', segments);
+    }
+
+    private static Dictionary<string, int> Load()
+    {
+        if (_cache is not null) return _cache;
+
+        _cache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (File.Exists(FilePath))
+        {
+            foreach (var line in File.ReadAllLines(FilePath))
+            {
+                int tab = line.IndexOf('\t');
+                if (tab < 0) continue;
+                if (int.TryParse(line.AsSpan(0, tab), out int count))
+                    _cache[line[(tab + 1)..]] = count;
+            }
+        }
+        return _cache;
+    }
+
+    private static void Save()
+    {
+        if (_cache is null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllLines(FilePath, _cache.Select(kv => $"{kv.Value}\t{kv.Key}"));
+        }
+        catch
+        {
+            // Statistik ist ein "nice to have" - ein Schreibfehler soll nie
+            // das eigentliche Öffnen eines Eintrags verhindern.
+        }
+    }
+}
+
 /// <summary>Zahlen-Präfixe wie "01 " für die manuelle Sortierung - werden in der Anzeige ausgeblendet.</summary>
 internal static class OrderPrefixHelper
 {
@@ -562,7 +642,7 @@ internal static class MenuBuilder
             Image = IconCache.Get(target),
             ToolTipText = target
         });
-        item.Click += (_, _) => Launcher.Open(target);
+        item.Click += (_, _) => { UsageStats.RecordOpen(Program.MenuRoot, target); Launcher.Open(target); };
         item.MouseUp += (_, e) =>
         {
             if (e.Button == MouseButtons.Right) EntryEditForm.Show(target, isFolder: false);
@@ -615,16 +695,23 @@ internal sealed class TileGridForm : Form
     private const int TileSize = 96;
     private const int TileGap = 10;
     private const int HeaderHeight = 40;
+    private const int IconSize = 34;
 
-    private static readonly Color BackgroundColor = Color.FromArgb(32, 32, 36);
-    private static readonly Color HeaderColor = Color.FromArgb(24, 24, 28);
-    private static readonly Color TileColor = Color.FromArgb(46, 46, 52);
+    // Helles, Windows-11-typisches Theme statt der ursprünglichen dunklen
+    // Variante - reine Geschmacksentscheidung, kein technischer Zwang.
+    private static readonly Color BackgroundColor = Color.FromArgb(246, 246, 248);
+    private static readonly Color HeaderColor = Color.White;
+    private static readonly Color BorderColor = Color.FromArgb(224, 224, 228);
+    private static readonly Color TileColor = Color.White;
+    private static readonly Color TextColor = Color.FromArgb(32, 32, 32);
+    private static readonly Color MutedTextColor = Color.FromArgb(96, 96, 100);
 
     private readonly string _root;
     private readonly FlowLayoutPanel _flow;
     private readonly Label _pathLabel;
     private readonly Button _back;
     private string _currentFolder;
+    private string _filterQuery = "";
 
     private TileGridForm(string root)
     {
@@ -639,12 +726,14 @@ internal sealed class TileGridForm : Form
         KeyPreview = true;
 
         var header = new Panel { Dock = DockStyle.Top, Height = HeaderHeight, BackColor = HeaderColor };
+        var headerBorder = new Panel { Dock = DockStyle.Bottom, Height = 1, BackColor = BorderColor };
+        header.Controls.Add(headerBorder);
 
         _back = new Button
         {
             Text = "⬅ Zurück",
             FlatStyle = FlatStyle.Flat,
-            ForeColor = Color.White,
+            ForeColor = TextColor,
             BackColor = HeaderColor,
             Location = new Point(6, 5),
             Size = new Size(90, 30)
@@ -655,7 +744,7 @@ internal sealed class TileGridForm : Form
         _pathLabel = new Label
         {
             AutoSize = true,
-            ForeColor = Color.Gainsboro,
+            ForeColor = MutedTextColor,
             Font = new Font("Segoe UI", 9.5f),
             Location = new Point(106, 11)
         };
@@ -664,7 +753,7 @@ internal sealed class TileGridForm : Form
         {
             Text = "Einfügen",
             FlatStyle = FlatStyle.Flat,
-            ForeColor = Color.White,
+            ForeColor = TextColor,
             BackColor = HeaderColor,
             Size = new Size(90, 30),
             Anchor = AnchorStyles.Top | AnchorStyles.Right
@@ -691,7 +780,40 @@ internal sealed class TileGridForm : Form
         Controls.Add(header);
 
         Deactivate += (_, _) => Close();
-        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
+
+        // Tippen bei geöffnetem Kachelraster filtert live, ganz ohne eigenes
+        // Eingabefeld - wie beim Windows-Startmenü. KeyPreview sorgt dafür,
+        // dass die Form Tastendrücke bekommt, obwohl kein Steuerelement
+        // fokussiert ist.
+        KeyPress += (_, e) =>
+        {
+            if (char.IsControl(e.KeyChar)) return;
+            _filterQuery += e.KeyChar;
+            RefreshTiles();
+            e.Handled = true;
+        };
+        KeyDown += (_, e) =>
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                if (_filterQuery.Length > 0)
+                {
+                    _filterQuery = "";
+                    RefreshTiles();
+                }
+                else
+                {
+                    Close();
+                }
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.Back && _filterQuery.Length > 0)
+            {
+                _filterQuery = _filterQuery[..^1];
+                RefreshTiles();
+                e.Handled = true;
+            }
+        };
 
         Load += (_, _) => RefreshTiles();
     }
@@ -719,16 +841,21 @@ internal sealed class TileGridForm : Form
     {
         if (string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase)) return;
         _currentFolder = Path.GetDirectoryName(_currentFolder) ?? _root;
+        _filterQuery = "";
         RefreshTiles();
     }
 
     private bool IsAtRoot => string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase);
 
+    private bool Matches(string name) =>
+        _filterQuery.Length == 0 || name.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase);
+
     private void RefreshTiles()
     {
         LegacyCodeCleanup.StripAll(_root);
 
-        _pathLabel.Text = GetRelativeLabel();
+        _pathLabel.Text = GetRelativeLabel() +
+            (_filterQuery.Length > 0 ? $"   🔎 {_filterQuery}" : "");
         _back.Enabled = !IsAtRoot;
 
         _flow.SuspendLayout();
@@ -760,22 +887,29 @@ internal sealed class TileGridForm : Form
             return;
         }
 
-        var looseFiles = FilterVisible(entries.Where(e => e is FileInfo));
+        var looseFiles = FilterVisible(entries.Where(e => e is FileInfo))
+            .Where(f => Matches(MenuBuilder.DisplayName(f.Name)))
+            .ToList();
         var folders = entries.OfType<DirectoryInfo>().ToList();
 
-        if (looseFiles.Count == 0 && folders.Count == 0)
-        {
-            _flow.Controls.Add(InfoLabel("Dieser Ordner ist leer."));
-            return;
-        }
+        // Meistgenutzte Gruppen zuerst - noch ungenutzte Ordner (Summe 0)
+        // fallen alphabetisch dahinter, statt zufällig durcheinander zu wirken.
+        var orderedFolders = folders
+            .OrderByDescending(f => UsageStats.GetGroupTotal(_root, f.FullName))
+            .ThenBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        // Erst alle sichtbaren Abschnitte sammeln, dann mit Trennlinien
+        // dazwischen rendern - vermeidet fehleranfällige Index-Sonderfälle
+        // für "war das der letzte sichtbare Abschnitt?".
+        var sections = new List<Action>();
 
         if (looseFiles.Count > 0)
-            _flow.Controls.Add(BuildTileRow(looseFiles));
+            sections.Add(() => _flow.Controls.Add(BuildTileRow(looseFiles)));
 
-        foreach (var folder in folders)
+        foreach (var folder in orderedFolders)
         {
-            var header = BuildGroupHeader(folder);
-            _flow.Controls.Add(header);
+            bool folderNameMatches = Matches(MenuBuilder.DisplayName(folder.Name));
 
             List<FileSystemInfo> children;
             try
@@ -784,14 +918,55 @@ internal sealed class TileGridForm : Form
             }
             catch (UnauthorizedAccessException)
             {
-                _flow.Controls.Add(InfoLabel("Kein Zugriff."));
+                if (_filterQuery.Length > 0 && !folderNameMatches) continue;
+                sections.Add(() =>
+                {
+                    _flow.Controls.Add(BuildGroupHeader(folder));
+                    _flow.Controls.Add(InfoLabel("Kein Zugriff."));
+                });
                 continue;
             }
 
-            _flow.Controls.Add(children.Count == 0
-                ? InfoLabel("(leer)")
-                : BuildTileRow(children));
+            // Passt der Ordnername selbst zum Filter, zeigen wir seinen
+            // ganzen Inhalt (praktisch, um eine Kategorie per Namen
+            // aufzurufen); sonst nur die einzeln passenden Einträge.
+            var visibleChildren = folderNameMatches
+                ? children
+                : [.. children.Where(c => Matches(MenuBuilder.DisplayName(c.Name)))];
+
+            if (_filterQuery.Length > 0 && visibleChildren.Count == 0) continue;
+
+            sections.Add(() =>
+            {
+                _flow.Controls.Add(BuildGroupHeader(folder));
+                _flow.Controls.Add(visibleChildren.Count == 0
+                    ? InfoLabel("(leer)")
+                    : BuildTileRow(visibleChildren));
+            });
         }
+
+        if (sections.Count == 0)
+        {
+            _flow.Controls.Add(InfoLabel(_filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer."));
+            return;
+        }
+
+        for (int i = 0; i < sections.Count; i++)
+        {
+            sections[i]();
+            if (i < sections.Count - 1) _flow.Controls.Add(BuildSeparator());
+        }
+    }
+
+    private Panel BuildSeparator()
+    {
+        int width = Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2 - SystemInformation.VerticalScrollBarWidth);
+        return new Panel
+        {
+            Size = new Size(width, 1),
+            BackColor = BorderColor,
+            Margin = new Padding(0, 4, 0, 4)
+        };
     }
 
     private void BuildSingleFolder(string folder)
@@ -807,9 +982,12 @@ internal sealed class TileGridForm : Form
             return;
         }
 
-        var visible = FilterVisible(entries);
+        var visible = FilterVisible(entries)
+            .Where(e => Matches(MenuBuilder.DisplayName(e.Name)))
+            .ToList();
+
         _flow.Controls.Add(visible.Count == 0
-            ? InfoLabel("Dieser Ordner ist leer.")
+            ? InfoLabel(_filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer.")
             : BuildTileRow(visible));
     }
 
@@ -848,9 +1026,9 @@ internal sealed class TileGridForm : Form
         {
             Text = MenuBuilder.DisplayName(folder.Name),
             AutoSize = true,
-            ForeColor = Color.White,
+            ForeColor = TextColor,
             Font = new Font("Segoe UI", 12f, FontStyle.Bold),
-            Margin = new Padding(2, 12, 0, 6)
+            Margin = new Padding(2, 16, 0, 8)
         };
         header.MouseUp += (_, e) =>
         {
@@ -872,7 +1050,7 @@ internal sealed class TileGridForm : Form
     {
         Text = text,
         AutoSize = true,
-        ForeColor = Color.Gainsboro,
+        ForeColor = MutedTextColor,
         Font = new Font("Segoe UI", 10f),
         Location = new Point(TileGap, TileGap)
     };
@@ -890,56 +1068,66 @@ internal sealed class TileGridForm : Form
             BackColor = TileColor,
             Cursor = Cursors.Hand
         };
+        tile.Paint += (_, e) =>
+        {
+            using var pen = new Pen(BorderColor);
+            e.Graphics.DrawRectangle(pen, 0, 0, tile.Width - 1, tile.Height - 1);
+        };
 
         var icon = new PictureBox
         {
             Image = IconCache.Get(path),
             SizeMode = PictureBoxSizeMode.Zoom,
-            Size = new Size(48, 48),
-            Location = new Point((TileSize - 48) / 2, 10),
+            Size = new Size(IconSize, IconSize),
+            Location = new Point((TileSize - IconSize) / 2, 14),
             BackColor = Color.Transparent
         };
 
         var caption = new Label
         {
             Text = label,
-            ForeColor = Color.White,
+            ForeColor = TextColor,
             TextAlign = ContentAlignment.TopCenter,
             Font = new Font("Segoe UI", 8f),
-            Location = new Point(2, 62),
-            Size = new Size(TileSize - 4, 32),
+            Location = new Point(2, 14 + IconSize + 6),
+            Size = new Size(TileSize - 4, TileSize - (14 + IconSize + 6) - 2),
             AutoEllipsis = true
         };
 
         tile.Controls.Add(icon);
         tile.Controls.Add(caption);
 
-        void Activate()
+        void OnMouseUp(object? _, MouseEventArgs e)
         {
-            if (isFolder)
+            // Wichtig: als ein einziger MouseUp-Handler statt Click+MouseUp -
+            // Control.Click feuert bei einer normalen Control (Panel/Label/
+            // PictureBox) für JEDE Maustaste, nicht nur links. Getrennte
+            // Handler hätten bei Rechtsklick sowohl den Bearbeiten-Dialog
+            // als auch das Öffnen ausgelöst.
+            if (e.Button == MouseButtons.Left)
             {
-                _currentFolder = path;
+                if (isFolder)
+                {
+                    _currentFolder = path;
+                    _filterQuery = "";
+                    RefreshTiles();
+                }
+                else
+                {
+                    Close();
+                    UsageStats.RecordOpen(_root, path);
+                    Launcher.Open(path);
+                }
+            }
+            else if (e.Button == MouseButtons.Right)
+            {
+                EntryEditForm.Show(path, isFolder);
                 RefreshTiles();
             }
-            else
-            {
-                Close();
-                Launcher.Open(path);
-            }
-        }
-
-        void EditOnRightClick(object? _, MouseEventArgs e)
-        {
-            if (e.Button != MouseButtons.Right) return;
-            EntryEditForm.Show(path, isFolder);
-            RefreshTiles();
         }
 
         foreach (Control c in new Control[] { tile, icon, caption })
-        {
-            c.Click += (_, _) => Activate();
-            c.MouseUp += EditOnRightClick;
-        }
+            c.MouseUp += OnMouseUp;
 
         return tile;
     }
