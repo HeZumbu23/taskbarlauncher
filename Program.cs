@@ -766,10 +766,13 @@ internal sealed class TileGridForm : Form
         header.Controls.Add(paste);
         header.Resize += (_, _) => paste.Location = new Point(header.Width - paste.Width - 6, 5);
 
+        // Bewusst kein AutoScroll - wird zu voll, teilt RenderSections()
+        // die Gruppen stattdessen in der Mitte auf zwei nebeneinander
+        // stehende Spalten auf, statt zu scrollen.
         _flow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
-            AutoScroll = true,
+            AutoScroll = false,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
             BackColor = BackgroundColor,
@@ -850,6 +853,17 @@ internal sealed class TileGridForm : Form
     private bool Matches(string name) =>
         _filterQuery.Length == 0 || name.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Ein Abschnitt im Raster: entweder eine Gruppe (mit Kopfzeile,
+    /// nur auf der Wurzelebene) oder die lose Datei-/Ordnerliste einer
+    /// einzelnen Ebene. Message statt Items zeigt nur einen Hinweistext
+    /// (leer/kein Zugriff/keine Treffer).</summary>
+    private sealed class Section
+    {
+        public DirectoryInfo? Header;
+        public List<FileSystemInfo>? Items;
+        public string? Message;
+    }
+
     private void RefreshTiles()
     {
         LegacyCodeCleanup.StripAll(_root);
@@ -858,24 +872,20 @@ internal sealed class TileGridForm : Form
             (_filterQuery.Length > 0 ? $"   🔎 {_filterQuery}" : "");
         _back.Enabled = !IsAtRoot;
 
-        _flow.SuspendLayout();
-        var oldControls = _flow.Controls.Cast<Control>().ToArray();
-        _flow.Controls.Clear();
-        foreach (Control c in oldControls) c.Dispose();
-
         // Auf der Wurzelebene sind Ordner keine eigenen Klick-Kacheln mehr -
         // ihr Inhalt steht direkt und gruppiert im Raster, ganz ohne
         // Reinklicken. Tiefere Ebenen navigiert man wie gewohnt hinein.
-        if (IsAtRoot)
-            BuildGroupedRoot();
-        else
-            BuildSingleFolder(_currentFolder);
+        var sections = IsAtRoot ? CollectGroupedRootSections() : CollectSingleFolderSections(_currentFolder);
+        if (sections.Count == 0)
+            sections.Add(new Section { Message = _filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer." });
 
-        _flow.ResumeLayout();
+        RenderSections(sections);
     }
 
-    private void BuildGroupedRoot()
+    private List<Section> CollectGroupedRootSections()
     {
+        var sections = new List<Section>();
+
         List<FileSystemInfo> entries;
         try
         {
@@ -883,8 +893,8 @@ internal sealed class TileGridForm : Form
         }
         catch (UnauthorizedAccessException)
         {
-            _flow.Controls.Add(InfoLabel("Kein Zugriff."));
-            return;
+            sections.Add(new Section { Message = "Kein Zugriff." });
+            return sections;
         }
 
         var looseFiles = FilterVisible(entries.Where(e => e is FileInfo))
@@ -899,13 +909,8 @@ internal sealed class TileGridForm : Form
             .ThenBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
-        // Erst alle sichtbaren Abschnitte sammeln, dann mit Trennlinien
-        // dazwischen rendern - vermeidet fehleranfällige Index-Sonderfälle
-        // für "war das der letzte sichtbare Abschnitt?".
-        var sections = new List<Action>();
-
         if (looseFiles.Count > 0)
-            sections.Add(() => _flow.Controls.Add(BuildTileRow(looseFiles)));
+            sections.Add(new Section { Items = looseFiles });
 
         foreach (var folder in orderedFolders)
         {
@@ -919,11 +924,7 @@ internal sealed class TileGridForm : Form
             catch (UnauthorizedAccessException)
             {
                 if (_filterQuery.Length > 0 && !folderNameMatches) continue;
-                sections.Add(() =>
-                {
-                    _flow.Controls.Add(BuildGroupHeader(folder));
-                    _flow.Controls.Add(InfoLabel("Kein Zugriff."));
-                });
+                sections.Add(new Section { Header = folder, Message = "Kein Zugriff." });
                 continue;
             }
 
@@ -936,40 +937,15 @@ internal sealed class TileGridForm : Form
 
             if (_filterQuery.Length > 0 && visibleChildren.Count == 0) continue;
 
-            sections.Add(() =>
-            {
-                _flow.Controls.Add(BuildGroupHeader(folder));
-                _flow.Controls.Add(visibleChildren.Count == 0
-                    ? InfoLabel("(leer)")
-                    : BuildTileRow(visibleChildren));
-            });
+            sections.Add(visibleChildren.Count == 0
+                ? new Section { Header = folder, Message = "(leer)" }
+                : new Section { Header = folder, Items = visibleChildren });
         }
 
-        if (sections.Count == 0)
-        {
-            _flow.Controls.Add(InfoLabel(_filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer."));
-            return;
-        }
-
-        for (int i = 0; i < sections.Count; i++)
-        {
-            sections[i]();
-            if (i < sections.Count - 1) _flow.Controls.Add(BuildSeparator());
-        }
+        return sections;
     }
 
-    private Panel BuildSeparator()
-    {
-        int width = Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2 - SystemInformation.VerticalScrollBarWidth);
-        return new Panel
-        {
-            Size = new Size(width, 1),
-            BackColor = BorderColor,
-            Margin = new Padding(0, 4, 0, 4)
-        };
-    }
-
-    private void BuildSingleFolder(string folder)
+    private List<Section> CollectSingleFolderSections(string folder)
     {
         List<FileSystemInfo> entries;
         try
@@ -978,41 +954,127 @@ internal sealed class TileGridForm : Form
         }
         catch (UnauthorizedAccessException)
         {
-            _flow.Controls.Add(InfoLabel("Kein Zugriff."));
-            return;
+            return [new Section { Message = "Kein Zugriff." }];
         }
 
         var visible = FilterVisible(entries)
             .Where(e => Matches(MenuBuilder.DisplayName(e.Name)))
             .ToList();
 
-        _flow.Controls.Add(visible.Count == 0
-            ? InfoLabel(_filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer.")
-            : BuildTileRow(visible));
+        return visible.Count == 0
+            ? [new Section { Message = _filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer." }]
+            : [new Section { Items = visible }];
     }
+
+    /// <summary>
+    /// Baut die Abschnitte zunächst einspaltig über die volle Breite und
+    /// misst, ob das in die verfügbare Höhe passt. Falls nicht (und es
+    /// mehr als einen Abschnitt gibt), werden die Abschnitte stattdessen in
+    /// der Mitte geteilt und als zwei nebeneinander stehende Spalten
+    /// gerendert - das Raster scrollt nie.
+    /// </summary>
+    private void RenderSections(List<Section> sections)
+    {
+        _flow.SuspendLayout();
+        var oldControls = _flow.Controls.Cast<Control>().ToArray();
+        _flow.Controls.Clear();
+        foreach (Control c in oldControls) c.Dispose();
+
+        int fullWidth = Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2);
+
+        var singleColumn = BuildColumnPanel(fullWidth);
+        RenderSectionsIntoColumn(singleColumn, fullWidth, sections);
+        singleColumn.PerformLayout();
+
+        if (sections.Count <= 1 || singleColumn.Height <= _flow.ClientSize.Height)
+        {
+            _flow.Controls.Add(singleColumn);
+        }
+        else
+        {
+            singleColumn.Dispose();
+
+            int half = (sections.Count + 1) / 2;
+            var left = sections.Take(half).ToList();
+            var right = sections.Skip(half).ToList();
+            int columnWidth = Math.Max(TileSize, (fullWidth - TileGap) / 2);
+
+            var row = new FlowLayoutPanel
+            {
+                FlowDirection = FlowDirection.LeftToRight,
+                WrapContents = false,
+                AutoSize = true,
+                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                BackColor = BackgroundColor,
+                Margin = new Padding(0)
+            };
+
+            var leftColumn = BuildColumnPanel(columnWidth);
+            RenderSectionsIntoColumn(leftColumn, columnWidth, left);
+            leftColumn.Margin = new Padding(0, 0, TileGap, 0);
+
+            var rightColumn = BuildColumnPanel(columnWidth);
+            RenderSectionsIntoColumn(rightColumn, columnWidth, right);
+            rightColumn.Margin = new Padding(0);
+
+            row.Controls.Add(leftColumn);
+            row.Controls.Add(rightColumn);
+            _flow.Controls.Add(row);
+        }
+
+        _flow.ResumeLayout();
+    }
+
+    private FlowLayoutPanel BuildColumnPanel(int widthPx) => new()
+    {
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoSize = true,
+        AutoSizeMode = AutoSizeMode.GrowAndShrink,
+        MaximumSize = new Size(widthPx, 0),
+        BackColor = BackgroundColor,
+        Margin = new Padding(0)
+    };
+
+    private void RenderSectionsIntoColumn(FlowLayoutPanel column, int widthPx, List<Section> sections)
+    {
+        for (int i = 0; i < sections.Count; i++)
+        {
+            var s = sections[i];
+            if (s.Header is not null) column.Controls.Add(BuildGroupHeader(s.Header));
+
+            column.Controls.Add(s.Message is not null
+                ? InfoLabel(s.Message)
+                : BuildTileRow(s.Items!, widthPx));
+
+            if (i < sections.Count - 1) column.Controls.Add(BuildSeparator(widthPx));
+        }
+    }
+
+    private Panel BuildSeparator(int widthPx) => new()
+    {
+        Size = new Size(Math.Max(TileSize, widthPx), 1),
+        BackColor = BorderColor,
+        Margin = new Padding(0, 4, 0, 4)
+    };
 
     private static List<FileSystemInfo> FilterVisible(IEnumerable<FileSystemInfo> entries) =>
         [.. entries
             .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
             .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))];
 
-    /// <summary>Ein horizontal umbrechendes Kachel-"Regal" mit fester Breite
-    /// (= sichtbare Fensterbreite), damit es tatsächlich mehrzeilig umbricht
-    /// statt einfach immer breiter zu werden.</summary>
-    private FlowLayoutPanel BuildTileRow(IEnumerable<FileSystemInfo> entries)
+    /// <summary>Ein horizontal umbrechendes Kachel-"Regal" mit fester Breite,
+    /// damit es tatsächlich mehrzeilig umbricht statt einfach immer breiter
+    /// zu werden.</summary>
+    private FlowLayoutPanel BuildTileRow(IEnumerable<FileSystemInfo> entries, int widthPx)
     {
-        // Vorsorglich um die Breite eines Scrollbalkens reduziert, damit
-        // Zeilen nicht knapp überlaufen, sobald das Raster hoch genug für
-        // einen vertikalen Scrollbalken wird.
-        int availableWidth = Math.Max(TileSize + TileGap * 2,
-            _flow.ClientSize.Width - TileGap * 2 - SystemInformation.VerticalScrollBarWidth);
         var row = new FlowLayoutPanel
         {
             FlowDirection = FlowDirection.LeftToRight,
             WrapContents = true,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            MaximumSize = new Size(availableWidth, 0),
+            MaximumSize = new Size(widthPx, 0),
             BackColor = BackgroundColor,
             Margin = new Padding(0, 0, 0, TileGap)
         };
