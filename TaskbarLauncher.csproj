@@ -29,4 +29,12 @@
     <EmbeddedResource Include="app.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- UI Automation (System.Windows.Automation), Teil des Windows-Desktop-
+         Shared-Frameworks - für BrowserTabFocus (siehe Program.cs), das
+         offene Browser-Tabs findet statt einen neuen zu öffnen. -->
+    <Reference Include="UIAutomationClient" />
+    <Reference Include="UIAutomationTypes" />
+  </ItemGroup>
+
 </Project>

@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Windows.Automation;
 
 namespace TaskbarLauncher;
 
@@ -1002,6 +1003,8 @@ internal static class Launcher
     {
         try
         {
+            if (TryFocusExisting(path)) return;
+
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
         }
         catch (Exception ex)
@@ -1010,6 +1013,174 @@ internal static class Launcher
                 "Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
+
+    /// <summary>
+    /// Springt zu einem bereits offenen Fenster/Tab statt eine neue Instanz
+    /// bzw. einen neuen Tab zu öffnen, wenn eines gefunden wird. Best-Effort:
+    /// bei .exe/.lnk zuverlässig (Prozesspfad-Abgleich), bei .url nur
+    /// heuristisch (Tab-Titel enthält den Namen des Eintrags) - findet
+    /// nichts, wird ganz normal per ShellExecute geöffnet.
+    /// </summary>
+    private static bool TryFocusExisting(string path)
+    {
+        string ext = Path.GetExtension(path);
+
+        if (ext.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+            return ProcessFocus.TryFocusRunning(path);
+
+        if (ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase))
+        {
+            string? target = ShortcutFactory.ReadTargetPath(path);
+            return !string.IsNullOrEmpty(target)
+                && target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+                && ProcessFocus.TryFocusRunning(target);
+        }
+
+        if (ext.Equals(".url", StringComparison.OrdinalIgnoreCase))
+        {
+            string hint = OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(path));
+            return BrowserTabFocus.TryFocusOpenTab(hint);
+        }
+
+        return false;
+    }
+}
+
+/// <summary>Holt ein bereits laufendes Fenster in den Vordergrund statt eine
+/// zweite Instanz eines Programms zu starten.</summary>
+internal static class ProcessFocus
+{
+    public static bool TryFocusRunning(string exePath)
+    {
+        string exeName;
+        try { exeName = Path.GetFileNameWithoutExtension(exePath); }
+        catch { return false; }
+
+        Process[] candidates;
+        try { candidates = Process.GetProcessesByName(exeName); }
+        catch { return false; }
+
+        foreach (var proc in candidates)
+        {
+            using (proc)
+            {
+                try
+                {
+                    // MainModule kann fehlschlagen, wenn der Prozess mit
+                    // anderen Rechten läuft (z. B. erhöht, wir nicht) - dann
+                    // überspringen statt raten.
+                    if (!string.Equals(proc.MainModule?.FileName, exePath, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (proc.MainWindowHandle != IntPtr.Zero)
+                {
+                    WindowFocus.Activate(proc.MainWindowHandle);
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+}
+
+/// <summary>
+/// Best-effort-Suche nach einem bereits offenen Browser-Tab per UI
+/// Automation: durchsucht die Fenster bekannter Browser-Prozesse nach einem
+/// Tab-Element, dessen sichtbarer Titel den gesuchten Namen enthält, und
+/// wechselt per SelectionItemPattern dorthin. Es gibt keine allgemeine
+/// Windows-API für "ist diese URL schon offen" - Browser exponieren nur den
+/// sichtbaren Tab-Titel über die Barrierefreiheits-/UIA-Baumstruktur, keine
+/// URL. Findet sich nichts (falscher/fehlender Titelabgleich, Browser nicht
+/// unterstützt, Zeitüberschreitung o. Ä.), wird ganz normal neu geöffnet.
+/// </summary>
+internal static class BrowserTabFocus
+{
+    private static readonly string[] BrowserProcessNames =
+        ["chrome", "msedge", "firefox", "brave", "opera", "vivaldi"];
+
+    public static bool TryFocusOpenTab(string titleHint)
+    {
+        if (string.IsNullOrWhiteSpace(titleHint)) return false;
+
+        foreach (var procName in BrowserProcessNames)
+        {
+            Process[] candidates;
+            try { candidates = Process.GetProcessesByName(procName); }
+            catch { continue; }
+
+            foreach (var proc in candidates)
+            {
+                using (proc)
+                {
+                    if (proc.MainWindowHandle == IntPtr.Zero) continue;
+                    if (TryFocusTabInWindow(proc.MainWindowHandle, titleHint)) return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryFocusTabInWindow(IntPtr hWnd, string titleHint)
+    {
+        try
+        {
+            var window = AutomationElement.FromHandle(hWnd);
+            if (window is null) return false;
+
+            var condition = new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.TabItem);
+
+            foreach (AutomationElement tab in window.FindAll(TreeScope.Descendants, condition))
+            {
+                string name = tab.Current.Name ?? "";
+                if (name.IndexOf(titleHint, StringComparison.OrdinalIgnoreCase) < 0) continue;
+
+                if (tab.TryGetCurrentPattern(SelectionItemPattern.Pattern, out var patternObj) &&
+                    patternObj is SelectionItemPattern selection)
+                {
+                    selection.Select();
+                }
+
+                WindowFocus.Activate(hWnd);
+                return true;
+            }
+        }
+        catch
+        {
+            // UI Automation kann pro Fenster fehlschlagen (nicht unterstützt,
+            // Zeitüberschreitung, Fenster inzwischen geschlossen, ...) -
+            // dann einfach beim nächsten Fenster/Fallback weitermachen.
+        }
+
+        return false;
+    }
+}
+
+/// <summary>Bringt ein Fenster zuverlässig in den Vordergrund, auch wenn es minimiert ist.</summary>
+internal static class WindowFocus
+{
+    private const int SW_RESTORE = 9;
+
+    public static void Activate(IntPtr hWnd)
+    {
+        if (IsIconic(hWnd)) ShowWindow(hWnd, SW_RESTORE);
+        SetForegroundWindow(hWnd);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
 }
 
 /// <summary>
