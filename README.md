@@ -1,8 +1,8 @@
 # TaskbarLauncher
 
-**Click one icon in your Windows 11 taskbar. Get your entire folder structure as a menu.**
+**A normal Windows app that turns a folder tree into a fast, tile-based launcher.**
 
-No config file, no database, no drag-and-drop editor to learn — a folder *is* the menu. Organize it exactly like any other folder on your PC, and TaskbarLauncher turns it into a fast, hierarchical launcher that lives in your taskbar.
+No config file, no database — a folder *is* the menu. Organize it exactly like any other folder on your PC, pin the app to your taskbar like any other program, and it opens instantly as a real window showing everything as big, categorized tiles.
 
 ```
 %AppData%\TaskbarLauncher\Menue\
@@ -14,38 +14,35 @@ No config file, no database, no drag-and-drop editor to learn — a folder *is* 
 └── Notes.txt
 ```
 
-→ click the taskbar icon → the same tree, as a menu.
+→ open the app → the same tree, as categorized tiles.
 
 ---
 
 ## Why this exists
 
-Windows has no built-in way to turn a folder tree into a taskbar menu. TaskbarLauncher is a small, self-contained .NET 8 app that does exactly that — nothing more. It stays out of the way: no tray icon, no separate window, just one ordinary taskbar button.
+Windows has no built-in way to turn a folder tree into a fast, glanceable launcher. TaskbarLauncher is a small, self-contained .NET 8 app that does exactly that — a completely ordinary window: pin it, click it, resize it, close it (well — minimize it, see below), just like any other program.
 
 ## Features
 
 **📁 The filesystem is the UI**
-Subfolders become submenus, `.lnk`/`.url` files become entries, any other file opens like a double-click in Explorer. Edit the folder in Explorer and the menu updates on the next click — no restart needed.
+Subfolders become categories, `.lnk`/`.url` files become tiles, any other file opens like a double-click in Explorer. Edit the folder in Explorer and the window refreshes with the latest state — no restart needed.
 
-**🖱️ Built for taskbar clicks**
-Big font (11.5pt) and big icons (28px) — easy to hit with a mouse from a small taskbar button. One click on a completely ordinary, pinnable taskbar icon opens the menu instantly (see [How the taskbar icon works](#how-the-taskbar-icon-works) for the trick behind that).
+**🔲 Everything visible at a glance**
+The top level is grouped and shown right away as large tiles under bold category headers, separated by thin dividers — no clicking into folders required just to see what's there. Deeper subfolders still drill in on click, with "Back" to go up. Categories are sorted by how often their contents get opened, most-used first — no setup, it just learns from usage over time. The window never scrolls: if everything doesn't fit in one column, it automatically splits down the middle into two side-by-side columns instead.
 
-**✏️ Manage the menu from the menu itself**
-- **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Paste from clipboard" in any menu level, and a shortcut appears right there.
-- **Right-click any entry or folder** to rename it, change its target (`.lnk`/`.url`), delete it, or move it up/down among its siblings.
-- Renaming/reordering never touches the visible menu — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
+**🔎 Type to filter, no search box**
+Just start typing while the window is focused — every keystroke filters the currently visible tiles live, Windows-Start-Menu style. Backspace to edit, Escape to clear the filter (or minimize the window if the filter's already empty).
 
-**🔲 Expanded View — a full tile grid**
-Toggle "Expanded View" for a completely different way to browse: a borderless, light-themed tile grid instead of nested menus. The top level is grouped and visible right away — each folder shows up as a header with its contents laid out directly underneath, separated by thin dividers, no clicking in required. Deeper folders still drill in on click, with "Back" to go up; right-click to edit, same as everywhere else. Groups are sorted by how often their contents get opened, most-used first — no setup, it just learns from usage over time. Just start typing while the grid is open to filter down to matching tiles live, no search box needed (Escape clears the filter, or closes the grid if it's already empty). The grid never scrolls — if the groups don't fit in one column, it splits them down the middle into two side-by-side columns instead.
+**✏️ Manage the menu from the window itself**
+- **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Einfügen" in the header, and a shortcut appears in the category you're currently viewing.
+- **Right-click any tile or category header** to rename it, change its target (`.lnk`/`.url`), delete it, or move it up/down among its siblings.
+- Renaming/reordering never touches the visible name — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
 
-**🔎 Real-time search**
-Press **Win+Alt+Y**, start typing — every keystroke filters live across every file in the entire menu tree, no matter how deep it's nested. Arrow keys to move through results, Enter to open the selected one.
-
-**⌨️ Global hotkeys, no taskbar click needed**
-`Win+Alt+L` jumps straight to the tile grid; `Win+Alt+Y` opens the search box already focused. See the [shortcuts table](#keyboard-shortcuts) below.
+**⌨️ Global hotkeys, no click needed**
+`Win+Alt+L` brings the window to front exactly where you left it; `Win+Alt+Y` brings it to front *and* jumps back to the top level with an empty filter, ready to type a fresh search. See the [shortcuts table](#keyboard-shortcuts) below.
 
 **🚀 One instance, always ready**
-A named mutex keeps a second launch from ever starting — it just tells the running instance to show the menu instead, so a stray double-click never does nothing.
+A named mutex keeps a second launch from ever starting a duplicate process — it just tells the running instance to come to the front instead, so a stray double-click never does nothing. Closing the window (✕) only minimizes it to the taskbar; the app keeps running so it's instantly available again.
 
 ---
 
@@ -61,11 +58,11 @@ The self-contained `TaskbarLauncher.exe` lands in `bin\Release\net8.0-windows\wi
 
 ### Pin it to the taskbar
 
-1. Run `TaskbarLauncher.exe` once (double-click). The first click shows the menu right away; the app then keeps running, minimized, in the background — its taskbar button stays put.
-2. Right-click that button → **"Pin to taskbar"**.
-3. Done. Every further click on the pinned icon opens the menu directly, for as long as the app is running.
+Just like any other program:
 
-For the pinned icon to keep working after a reboot, also set up autostart (below) — otherwise the first click after a restart just relaunches the app instead of opening the menu.
+1. Run `TaskbarLauncher.exe`.
+2. Right-click its taskbar button → **"Pin to taskbar"**.
+3. Done. Click the pinned icon any time to bring the window to front; closing it only minimizes, so it's ready to go instantly next time.
 
 ### Autostart
 
@@ -75,7 +72,7 @@ For the pinned icon to keep working after a reboot, also set up autostart (below
 "C:\Path\to\TaskbarLauncher.exe" --startup
 ```
 
-This makes the app start silently on login instead of popping the menu open immediately. Since it's already running by the time you'd click the pinned icon, the two merge into a single, always-instant button.
+This makes the app start minimized on login instead of popping its window open immediately.
 
 ### Deploy script
 
@@ -91,28 +88,24 @@ It fetches on every interval but only stops the running instance, pulls, rebuild
 
 ---
 
-## How the taskbar icon works
-
-TaskbarLauncher shows no window and no tray icon. It runs permanently minimized in the background, which makes it appear as a completely ordinary taskbar entry — like any other open app. When you click that button, Windows first sends the minimized window a `WM_SYSCOMMAND`/`SC_RESTORE` message *before* actually restoring it. TaskbarLauncher intercepts exactly that message and opens the menu instead of letting the restore happen. The result: one normal, pinnable icon whose click opens the menu instantly — no tray, no relaunch delay.
-
 ## Filling the menu
 
 TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate it however you like:
 
 - Drag files in while holding **Alt** → creates a shortcut instead of a copy.
 - Drag a link straight from your browser's address bar → Windows creates a `.url` file.
-- Create subfolders → they become submenus automatically.
-- Or skip Explorer entirely and use **Paste from clipboard** / **right-click → edit** directly from the menu (see Features above).
+- Create subfolders → they become categories automatically.
+- Or skip Explorer entirely and use **Paste from clipboard** / **right-click → edit** directly from the window (see Features above).
 
 ## Keyboard shortcuts
 
 | Shortcut | Action |
 |---|---|
-| `Win+Alt+L` | Open the tile grid (Expanded View) directly, regardless of the default mode |
-| `Win+Alt+Y` | Open the real-time search box, focused and ready to type |
-| *(taskbar click)* | Open the menu in whichever mode is currently the default |
+| `Win+Alt+L` | Bring the window to front, unchanged (wherever you left it) |
+| `Win+Alt+Y` | Bring the window to front, back at the top level, filter cleared — ready to type |
+| *(taskbar click)* | Restore/activate the window, standard Windows behavior |
 
-`Win+Alt+L`/`Win+Alt+Y` were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "You searching?"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
+Both were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "You searching?"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
 
 ## Customizing the icon
 
@@ -120,9 +113,9 @@ TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate
 
 ## Ideas for further extension
 
-- Fuzzy matching in search (typo-tolerant, not just substring)
-- Pin recently-used entries to the top
-- Per-folder custom accent colors in the tile grid
+- Fuzzy matching in the type-to-filter (typo-tolerant, not just substring)
+- Remember window size/position across sessions
+- Per-category custom accent colors
 
 ---
 

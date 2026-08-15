@@ -7,30 +7,30 @@ namespace TaskbarLauncher;
 
 internal static class Program
 {
-    /// <summary>Wurzel der Menü-Hierarchie. Unterordner = Untermenüs, Dateien = Einträge.</summary>
+    /// <summary>Wurzel der Menü-Hierarchie. Unterordner = Kategorien, Dateien = Einträge.</summary>
     public static readonly string MenuRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "TaskbarLauncher", "Menue");
 
     private const string SingleInstanceMutexName = "TaskbarLauncher-9F1E2C3B-SingleInstance";
-    private const string ShowMenuEventName = "TaskbarLauncher-9F1E2C3B-ShowMenu";
+    private const string ActivateEventName = "TaskbarLauncher-9F1E2C3B-Activate";
 
-    // Von der Autostart-Verknüpfung gesetzt, damit der stille Start beim
-    // Anmelden nicht sofort das Menü aufklappt (siehe MainForm.OnShown).
+    // Von der Autostart-Verknüpfung gesetzt, damit die App beim Anmelden
+    // lautlos minimiert startet, statt sofort das Fenster zu zeigen.
     public const string StartupArg = "--startup";
 
     [STAThread]
     private static void Main(string[] args)
     {
         using var mutex = new Mutex(true, SingleInstanceMutexName, out bool createdNew);
-        using var showMenuEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ShowMenuEventName);
+        using var activateEvent = new EventWaitHandle(false, EventResetMode.AutoReset, ActivateEventName);
 
         if (!createdNew)
         {
-            // Es läuft bereits eine Instanz (z. B. per Autostart). Statt eine
-            // zweite zu starten, bekommt die laufende einfach den Auftrag,
-            // das Menü zu zeigen - der Klick geht so nie ins Leere.
-            showMenuEvent.Set();
+            // Es läuft bereits eine Instanz. Statt eine zweite zu starten,
+            // bekommt die laufende einfach den Auftrag, sich in den
+            // Vordergrund zu holen.
+            activateEvent.Set();
             return;
         }
 
@@ -41,7 +41,7 @@ internal static class Program
         EnsureMenuFolder();
 
         bool startedSilently = args.Any(a => a.Equals(StartupArg, StringComparison.OrdinalIgnoreCase));
-        Application.Run(new MainForm(startedSilently, showMenuEvent));
+        Application.Run(new MainForm(startedSilently, activateEvent));
     }
 
     private static void EnsureMenuFolder()
@@ -56,60 +56,58 @@ internal static class Program
             """
             Dieser Ordner ist das Menü.
 
-            - Unterordner        -> Untermenü (beliebig tief verschachtelt)
-            - Verknüpfung (.lnk) -> Menüeintrag, öffnet das Ziel
-            - Internetlink(.url) -> Menüeintrag, öffnet die Seite im Browser
-            - beliebige Datei    -> Menüeintrag, öffnet die Datei
-            - Datei namens "---" -> Trennlinie im Menü
+            - Unterordner        -> Kategorie (Kopfzeile im Fenster)
+            - Verknüpfung (.lnk) -> Eintrag, öffnet das Ziel
+            - Internetlink(.url) -> Eintrag, öffnet die Seite im Browser
+            - beliebige Datei    -> Eintrag, öffnet die Datei
+            - Datei namens "---" -> Trennlinie
 
             Sortierung: alphabetisch. Zahlen-Präfixe wie "01 " erzwingen eine
             Reihenfolge und werden in der Anzeige ausgeblendet.
 
-            Auch direkt aus dem Menü heraus:
-            - "Aus Zwischenablage einfügen" (oben in jeder Ebene) erstellt aus
-              einer kopierten Datei/einem kopierten Link eine neue Verknüpfung
-              genau in dieser Ebene.
-            - Rechtsklick auf einen Eintrag oder Ordner öffnet ihn zum
-              Umbenennen, Ziel ändern, manuellen Einsortieren (Rauf/Runter)
-              oder Löschen.
-            - "Erweiterte Ansicht" (unten im Menü, an/aus) zeigt statt des
-              Menüs ein großes Kachelraster: die oberste Ebene steht sofort
-              gruppiert und sichtbar da, tiefere Ordner navigiert man per
-              Klick hinein, "Zurück" geht wieder hoch.
+            Auch direkt aus dem Fenster heraus:
+            - "Einfügen" (oben rechts) erstellt aus einer kopierten Datei/
+              einem kopierten Link eine neue Verknüpfung in der gerade
+              angezeigten Kategorie.
+            - Rechtsklick auf einen Eintrag oder eine Kategorie öffnet ihn
+              zum Umbenennen, Ziel ändern, manuellen Einsortieren
+              (Rauf/Runter) oder Löschen.
+            - Tippen bei geöffnetem Fenster filtert live über die gerade
+              angezeigten Einträge, ganz ohne eigenes Suchfeld.
+            - Kategorien sortieren sich automatisch nach Nutzung -
+              meistgeöffnete zuerst.
 
-            Win+Alt+Y öffnet einen Suchschlitz mit sofort fokussiertem
-            Eingabefeld - tippen filtert in Echtzeit über alle Dateien der
-            gesamten Hierarchie, Pfeiltasten wählen, Enter öffnet den
-            markierten Treffer direkt, egal wie tief er verschachtelt ist.
-            Win+Alt+L öffnet direkt das Kachelraster (Erweiterte Ansicht).
+            Das Fenster ist eine ganz normale Windows-Anwendung: einfach in
+            der Taskleiste anheften, per Klick öffnen/wiederherstellen wie
+            jedes andere Programm. Schließen (X) minimiert nur - die App
+            läuft im Hintergrund weiter, damit sie sofort wieder da ist.
 
-            Änderungen wirken sofort, das Menü wird bei jedem Klick neu gelesen.
+            Win+Alt+L holt das Fenster nach vorne (wo man's verlassen hat).
+            Win+Alt+Y holt es nach vorne UND springt zur obersten Ebene mit
+            leerem Filter, bereit zum Tippen.
+
+            Änderungen wirken sofort, das Fenster liest bei jedem Anzeigen
+            neu ein.
             """);
     }
 }
 
 /// <summary>
-/// Läuft dauerhaft im Hintergrund als ganz normaler Taskleisten-Eintrag -
-/// aber immer minimiert, also ohne je ein Fenster zu zeigen. Ein Klick auf
-/// den Taskleisten-Button lässt Windows zuerst WM_SYSCOMMAND/SC_RESTORE an
-/// das Fenster schicken, bevor es tatsächlich wiederhergestellt wird. Genau
-/// diese Nachricht fangen wir ab: statt das Fenster zu zeigen, öffnen wir
-/// das Menü und lassen es minimiert. So bleibt exakt ein normales, anheftbares
-/// Icon übrig, dessen Klick sofort das Menü öffnet - ohne Tray, ohne Neustart.
+/// Ganz normales Hauptfenster: erscheint in der Taskleiste, lässt sich
+/// verschieben/anheften/schließen wie jede andere Windows-Anwendung. Der
+/// Inhalt ist das Kachelraster; Schließen (X) minimiert nur, damit die App
+/// sofort wieder verfügbar ist statt neu starten zu müssen.
 /// </summary>
 internal sealed class MainForm : Form
 {
-    private const int WM_SYSCOMMAND = 0x0112;
-    private const int SC_RESTORE = 0xF120;
     private const int WM_HOTKEY = 0x0312;
 
-    // Win+Alt+L ("L" wie Launcher) öffnet das Kachelraster (Erweiterte
-    // Ansicht), unabhängig vom sonst eingestellten Standardmodus. Win+Alt+Y
-    // öffnet den Echtzeit-Suchschlitz mit bereits fokussiertem Eingabefeld.
-    // Unter den Win+Alt-Kombinationen sind nur wenige von Windows selbst
-    // belegt (R/G/B/Enter/PrtScn für die Xbox Game Bar, D für Datum/Uhrzeit)
-    // - L und Y sind frei.
-    private const int ExpandedViewHotkeyId = 1;
+    // Win+Alt+L ("L" wie Launcher) holt das Fenster unverändert nach vorne.
+    // Win+Alt+Y holt es zusätzlich zur obersten Ebene mit leerem Filter,
+    // bereit zum Tippen. Unter den Win+Alt-Kombinationen sind nur wenige
+    // von Windows selbst belegt (R/G/B/Enter/PrtScn für die Xbox Game Bar,
+    // D für Datum/Uhrzeit) - L und Y sind frei.
+    private const int ShowHotkeyId = 1;
     private const int SearchHotkeyId = 2;
     private const uint MOD_ALT = 0x0001;
     private const uint MOD_WIN = 0x0008;
@@ -117,588 +115,12 @@ internal sealed class MainForm : Form
     private const uint VK_L = 0x4C;
     private const uint VK_Y = 0x59;
 
-    private readonly EventWaitHandle _showMenuEvent;
-    private ContextMenuStrip? _menu;
-
-    public MainForm(bool startedSilently, EventWaitHandle showMenuEvent)
-    {
-        _showMenuEvent = showMenuEvent;
-
-        Text = "Launcher";
-        Icon = LoadAppIcon();
-        ShowInTaskbar = true;
-        StartPosition = FormStartPosition.Manual;
-        Location = new Point(-32000, -32000);
-        Size = new Size(1, 1);
-        FormBorderStyle = FormBorderStyle.FixedToolWindow;
-
-        Load += (_, _) => WindowState = FormWindowState.Minimized;
-
-        if (!startedSilently)
-        {
-            // Manueller Start (Doppelklick / erster Klick auf ein noch nicht
-            // laufendes, angeheftetes Icon) - direkt das Menü zeigen, statt
-            // den Klick "wirkungslos" verpuffen zu lassen.
-            Shown += (_, _) => ShowMenu();
-        }
-
-        new Thread(ListenForShowMenuRequests) { IsBackground = true }.Start();
-    }
-
-    protected override void OnHandleCreated(EventArgs e)
-    {
-        base.OnHandleCreated(e);
-        // Fehlschlag (z. B. Hotkey bereits durch ein anderes Programm belegt)
-        // wird bewusst stillschweigend ignoriert - die App bleibt trotzdem
-        // über den Taskleisten-Klick voll nutzbar.
-        RegisterHotKey(Handle, ExpandedViewHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_L);
-        RegisterHotKey(Handle, SearchHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_Y);
-    }
-
-    protected override void OnHandleDestroyed(EventArgs e)
-    {
-        UnregisterHotKey(Handle, ExpandedViewHotkeyId);
-        UnregisterHotKey(Handle, SearchHotkeyId);
-        base.OnHandleDestroyed(e);
-    }
-
-    /// <summary>
-    /// Läuft auf einem Hintergrund-Thread. Ein zweiter Programmstart (z. B.
-    /// Doppelklick, während bereits eine Instanz läuft) setzt dieses Signal
-    /// statt eine zweite Instanz zu starten - so öffnet auch dieser Klick
-    /// zuverlässig das Menü.
-    /// </summary>
-    private void ListenForShowMenuRequests()
-    {
-        while (!IsDisposed)
-        {
-            if (_showMenuEvent.WaitOne(250) && !IsDisposed)
-            {
-                try { Invoke(new Action(() => ShowMenu())); }
-                catch (ObjectDisposedException) { }
-                catch (InvalidOperationException) { }
-            }
-        }
-    }
-
-    protected override void WndProc(ref Message m)
-    {
-        if (m.Msg == WM_SYSCOMMAND && (m.WParam.ToInt32() & 0xFFF0) == SC_RESTORE)
-        {
-            ShowMenu();
-            return; // nicht an Windows weiterreichen -> Fenster bleibt minimiert/unsichtbar
-        }
-
-        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == ExpandedViewHotkeyId)
-        {
-            TileGridForm.ShowAt(Program.MenuRoot, Cursor.Position);
-            return;
-        }
-
-        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == SearchHotkeyId)
-        {
-            SearchForm.ShowAt(Program.MenuRoot, Cursor.Position);
-            return;
-        }
-
-        base.WndProc(ref m);
-    }
-
-    private void ShowMenu()
-    {
-        // Der Standardmodus "Erweiterte Ansicht" zeigt statt des normalen
-        // Menüs das Kachelraster.
-        if (Settings.ExpandedView)
-        {
-            TileGridForm.ShowAt(Program.MenuRoot, Cursor.Position);
-            return;
-        }
-
-        _menu?.Dispose();
-        _menu = MenuBuilder.Build(Program.MenuRoot, showExit: true);
-
-        var pos = Cursor.Position;
-        var area = Screen.FromPoint(pos).WorkingArea;
-
-        // Unten am Bildschirm (übliche Taskleistenposition) nach oben aufklappen.
-        bool up = pos.Y > area.Top + area.Height / 2;
-        bool left = pos.X > area.Left + area.Width / 2;
-        var dir = (up, left) switch
-        {
-            (true, true) => ToolStripDropDownDirection.AboveLeft,
-            (true, false) => ToolStripDropDownDirection.AboveRight,
-            (false, true) => ToolStripDropDownDirection.BelowLeft,
-            _ => ToolStripDropDownDirection.BelowRight
-        };
-
-        _menu.Show(pos, dir);
-        _menu.Focus();
-    }
-
-    private static Icon LoadAppIcon()
-    {
-        // Über die eingebettete Ressource geladen (nicht per
-        // Icon.ExtractAssociatedIcon), damit die volle Auflösungsreihe aus
-        // app.ico erhalten bleibt - Windows kann sich dann je nach Kontext
-        // (Taskleiste, DPI-Skalierung, Alt-Tab, ...) die passend scharfe
-        // Größe herausholen, statt eine einzelne kleine Auflösung
-        // hochzuskalieren.
-        try
-        {
-            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("TaskbarLauncher.app.ico");
-            if (stream is not null) return new Icon(stream);
-        }
-        catch
-        {
-            // Fällt unten auf die weniger scharfe Variante zurück.
-        }
-
-        try
-        {
-            return Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
-        }
-        catch
-        {
-            return SystemIcons.Application;
-        }
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing) _menu?.Dispose();
-        base.Dispose(disposing);
-    }
-}
-
-/// <summary>Persistierte Anzeige-Einstellungen, als einfache Textdatei neben dem Menü-Ordner.</summary>
-internal static class Settings
-{
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "TaskbarLauncher", "settings.ini");
-
-    public static bool ExpandedView
-    {
-        get => File.Exists(FilePath) &&
-               File.ReadAllLines(FilePath).Any(l => l.Trim().Equals("ExpandedView=true", StringComparison.OrdinalIgnoreCase));
-        set
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, $"ExpandedView={(value ? "true" : "false")}\r\n");
-        }
-    }
-}
-
-/// <summary>
-/// Zählt, wie oft ein Eintrag geöffnet wurde, persistiert als einfache
-/// "Anzahl&lt;TAB&gt;Schlüssel"-Textdatei. Der Schlüssel ist der relative Pfad ab
-/// dem Menü-Ordner mit entfernten Sortier-Präfixen ("01 " etc.) an jedem
-/// Segment - dadurch übersteht die Statistik das manuelle Umsortieren
-/// (das nur Präfixe ändert), nicht aber ein echtes Umbenennen.
-/// </summary>
-internal static class UsageStats
-{
-    private static readonly string FilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "TaskbarLauncher", "usage.txt");
-
-    private static Dictionary<string, int>? _cache;
-
-    public static void RecordOpen(string root, string fullPath)
-    {
-        var stats = Load();
-        string key = KeyFor(root, fullPath);
-        stats[key] = stats.GetValueOrDefault(key) + 1;
-        Save();
-    }
-
-    public static int GetCount(string root, string fullPath) =>
-        Load().GetValueOrDefault(KeyFor(root, fullPath), 0);
-
-    /// <summary>Summe aller Öffnungen von Dateien unterhalb von folder (rekursiv) - für die Gruppen-Sortierung.</summary>
-    public static int GetGroupTotal(string root, string folder)
-    {
-        int total = 0;
-        try
-        {
-            foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
-                total += GetCount(root, file);
-        }
-        catch (UnauthorizedAccessException) { }
-        return total;
-    }
-
-    private static string KeyFor(string root, string fullPath)
-    {
-        string rel = Path.GetRelativePath(root, fullPath);
-        var segments = rel.Split(Path.DirectorySeparatorChar).Select(OrderPrefixHelper.Strip);
-        return string.Join('/', segments);
-    }
-
-    private static Dictionary<string, int> Load()
-    {
-        if (_cache is not null) return _cache;
-
-        _cache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        if (File.Exists(FilePath))
-        {
-            foreach (var line in File.ReadAllLines(FilePath))
-            {
-                int tab = line.IndexOf('\t');
-                if (tab < 0) continue;
-                if (int.TryParse(line.AsSpan(0, tab), out int count))
-                    _cache[line[(tab + 1)..]] = count;
-            }
-        }
-        return _cache;
-    }
-
-    private static void Save()
-    {
-        if (_cache is null) return;
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllLines(FilePath, _cache.Select(kv => $"{kv.Value}\t{kv.Key}"));
-        }
-        catch
-        {
-            // Statistik ist ein "nice to have" - ein Schreibfehler soll nie
-            // das eigentliche Öffnen eines Eintrags verhindern.
-        }
-    }
-}
-
-/// <summary>Zahlen-Präfixe wie "01 " für die manuelle Sortierung - werden in der Anzeige ausgeblendet.</summary>
-internal static class OrderPrefixHelper
-{
-    public static readonly Regex Regex = new(@"^\d+\s*[\s._\-]\s*", RegexOptions.Compiled);
-
-    public static string Strip(string name) => Regex.Replace(name, "");
-
-    public static string Extract(string name)
-    {
-        var m = Regex.Match(name);
-        return m.Success ? m.Value : "";
-    }
-}
-
-/// <summary>
-/// Räumt einmalig die " [123]"-Codesuffixe eines früheren Prototyps aus
-/// vorhandenen Dateinamen wieder heraus (ersetzt durch den Echtzeit-
-/// Suchschlitz, Win+Alt+Y). Läuft bei jedem Menüaufbau; sobald alle Namen
-/// bereinigt sind, ist es ein reiner No-op-Scan.
-/// </summary>
-internal static class LegacyCodeCleanup
-{
-    private static readonly Regex Suffix = new(@"\s*\[(\d{3})\]$", RegexOptions.Compiled);
-
-    public static void StripAll(string root)
-    {
-        if (!Directory.Exists(root)) return;
-
-        List<string> files;
-        try { files = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)]; }
-        catch (UnauthorizedAccessException) { return; }
-
-        foreach (var file in files)
-        {
-            string baseName = Path.GetFileNameWithoutExtension(file);
-            if (!Suffix.IsMatch(baseName)) continue;
-
-            string cleanBase = Suffix.Replace(baseName, "");
-            string ext = Path.GetExtension(file);
-            string dir = Path.GetDirectoryName(file)!;
-            string newPath = Path.Combine(dir, cleanBase + ext);
-
-            for (int n = 2; File.Exists(newPath); n++)
-                newPath = Path.Combine(dir, $"{cleanBase} ({n}){ext}");
-
-            try
-            {
-                File.Move(file, newPath);
-                IconCache.Invalidate(file);
-            }
-            catch
-            {
-                // Datei evtl. gerade in Benutzung o.ä. - beim nächsten Öffnen erneut versuchen.
-            }
-        }
-    }
-}
-
-/// <summary>Liest ein Verzeichnis konsistent für Anzeige *und* manuelle Sortierung aus.</summary>
-internal static class MenuFs
-{
-    public static List<FileSystemInfo> GetOrderedEntries(string folder)
-    {
-        var dir = new DirectoryInfo(folder);
-        if (!dir.Exists) return [];
-
-        return [.. dir.EnumerateFileSystemInfos()
-                      .Where(IsVisible)
-                      .Where(f => !f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
-                      .OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)];
-    }
-
-    public static bool IsVisible(FileSystemInfo fsi)
-        => (fsi.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0;
-
-    /// <summary>Eine Datei wie "---" oder "---.txt" ist eine Trennlinie, kein echter Eintrag.</summary>
-    public static bool IsSeparatorFile(FileInfo file)
-    {
-        var bare = OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(file.Name));
-        return bare.Length > 0 && bare.All(c => c == '-');
-    }
-}
-
-/// <summary>
-/// Manuelles Verschieben eines Eintrags innerhalb seiner Ebene. Sobald zum
-/// ersten Mal verschoben wird, bekommen alle Geschwister durchgängige
-/// "01 ", "02 ", ... Präfixe, damit die Reihenfolge ab dann exakt und
-/// dauerhaft kontrollierbar ist.
-/// </summary>
-internal static class MenuOrder
-{
-    public static bool CanMove(string entryPath, int direction)
-    {
-        var siblings = GetOrderedSiblingPaths(entryPath);
-        int index = siblings.FindIndex(p => string.Equals(p, entryPath, StringComparison.OrdinalIgnoreCase));
-        int target = index + direction;
-        return index >= 0 && target >= 0 && target < siblings.Count;
-    }
-
-    /// <summary>Verschiebt den Eintrag um eine Position und gibt seinen (ggf. neuen) Pfad zurück.</summary>
-    public static string Move(string entryPath, int direction)
-    {
-        string parent = Path.GetDirectoryName(entryPath)!;
-        var siblings = GetOrderedSiblingPaths(entryPath);
-
-        int index = siblings.FindIndex(p => string.Equals(p, entryPath, StringComparison.OrdinalIgnoreCase));
-        int target = index + direction;
-        if (index < 0 || target < 0 || target >= siblings.Count) return entryPath;
-
-        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
-
-        string movedPath = entryPath;
-        for (int i = 0; i < siblings.Count; i++)
-        {
-            string oldPath = siblings[i];
-            string baseName = OrderPrefixHelper.Strip(Path.GetFileName(oldPath));
-            string newPath = Path.Combine(parent, $"{i + 1:00} {baseName}");
-
-            if (string.Equals(oldPath, newPath, StringComparison.Ordinal)) continue;
-
-            if (Directory.Exists(oldPath)) Directory.Move(oldPath, newPath);
-            else File.Move(oldPath, newPath);
-
-            IconCache.Invalidate(oldPath);
-
-            if (string.Equals(oldPath, entryPath, StringComparison.OrdinalIgnoreCase))
-                movedPath = newPath;
-        }
-
-        return movedPath;
-    }
-
-    private static List<string> GetOrderedSiblingPaths(string entryPath)
-        => [.. MenuFs.GetOrderedEntries(Path.GetDirectoryName(entryPath)!).Select(f => f.FullName)];
-}
-
-/// <summary>Baut aus einer Ordnerstruktur ein hierarchisches Menü.</summary>
-internal static class MenuBuilder
-{
-    private const int MaxDepth = 8;
-
-    // Deutlich größer als die WinForms-Standardwerte (~9pt Text, 16px Icons),
-    // wie gewünscht - besser greifbar bei Taskleisten-Klicks per Maus/Touch.
-    private static readonly Font MenuFont = new("Segoe UI", 11.5f);
-    private static readonly Size MenuImageSize = new(28, 28);
-
-    public static ContextMenuStrip Build(string root, bool showExit)
-    {
-        LegacyCodeCleanup.StripAll(root);
-
-        var menu = new ContextMenuStrip
-        {
-            Font = MenuFont,
-            ImageScalingSize = MenuImageSize,
-            ShowImageMargin = true,
-            RenderMode = ToolStripRenderMode.System
-        };
-
-        menu.Items.Add(CreatePasteItem(root));
-        menu.Items.Add(new ToolStripSeparator());
-
-        var items = BuildItems(root, 0);
-        if (items.Length == 0)
-            menu.Items.Add(Style(new ToolStripMenuItem("(Menü-Ordner ist leer)") { Enabled = false }));
-        else
-            menu.Items.AddRange(items);
-
-        menu.Items.Add(new ToolStripSeparator());
-
-        var open = Style(new ToolStripMenuItem("Menü-Ordner öffnen…"));
-        open.Click += (_, _) => Launcher.Open(Program.MenuRoot);
-        menu.Items.Add(open);
-
-        // Steuert den *dauerhaften* Standardmodus: ist er aktiv, öffnet ein
-        // Klick auf das Taskleisten-Icon künftig das Kachelraster
-        // (TileGridForm) statt dieses klassischen Menüs.
-        var expandedView = Style(new ToolStripMenuItem("Erweiterte Ansicht (Kachelraster)")
-        {
-            CheckOnClick = true,
-            Checked = Settings.ExpandedView
-        });
-        expandedView.Click += (_, _) => Settings.ExpandedView = expandedView.Checked;
-        menu.Items.Add(expandedView);
-
-        if (showExit)
-        {
-            var exit = Style(new ToolStripMenuItem("Beenden"));
-            exit.Click += (_, _) => Application.Exit();
-            menu.Items.Add(exit);
-        }
-
-        return menu;
-    }
-
-    /// <summary>Normale, vollständig verschachtelte Darstellung.</summary>
-    private static ToolStripItem[] BuildItems(string path, int depth)
-    {
-        var result = new List<ToolStripItem>();
-
-        try
-        {
-            foreach (var entry in MenuFs.GetOrderedEntries(path))
-            {
-                if (entry is DirectoryInfo sub)
-                {
-                    result.Add(BuildFolderItem(sub, depth));
-                }
-                else if (entry is FileInfo file)
-                {
-                    var leaf = BuildLeafOrSeparator(file);
-                    if (leaf is not null) result.Add(leaf);
-                }
-            }
-        }
-        catch (UnauthorizedAccessException)
-        {
-            result.Add(Style(new ToolStripMenuItem("(kein Zugriff)") { Enabled = false }));
-        }
-
-        return [.. result];
-    }
-
-    private static ToolStripMenuItem BuildFolderItem(DirectoryInfo sub, int depth)
-    {
-        var item = Style(new ToolStripMenuItem(DisplayName(sub.Name))
-        {
-            Image = IconCache.Get(sub.FullName)
-        });
-        item.MouseUp += (_, e) =>
-        {
-            if (e.Button == MouseButtons.Right) EntryEditForm.Show(sub.FullName, isFolder: true);
-        };
-
-        var dropDown = new ToolStripDropDownMenu
-        {
-            Font = MenuFont,
-            ImageScalingSize = MenuImageSize,
-            ShowImageMargin = true,
-            RenderMode = ToolStripRenderMode.System
-        };
-        dropDown.Items.Add(CreatePasteItem(sub.FullName));
-        dropDown.Items.Add(new ToolStripSeparator());
-
-        var children = depth < MaxDepth ? BuildItems(sub.FullName, depth + 1) : [];
-        if (children.Length == 0)
-            dropDown.Items.Add(Style(new ToolStripMenuItem("(leer)") { Enabled = false }));
-        else
-            dropDown.Items.AddRange(children);
-
-        item.DropDown = dropDown;
-        return item;
-    }
-
-    /// <summary>Erzeugt einen Menüeintrag für eine Datei, oder eine Trennlinie bei "---"-Dateien.</summary>
-    private static ToolStripItem? BuildLeafOrSeparator(FileInfo file)
-    {
-        if (file.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)) return null;
-
-        var bare = Path.GetFileNameWithoutExtension(file.Name);
-        if (bare.Length > 0 && bare.All(c => c == '-')) return new ToolStripSeparator();
-
-        string target = file.FullName;
-        var item = Style(new ToolStripMenuItem(DisplayName(file.Name))
-        {
-            Image = IconCache.Get(target),
-            ToolTipText = target
-        });
-        item.Click += (_, _) => { UsageStats.RecordOpen(Program.MenuRoot, target); Launcher.Open(target); };
-        item.MouseUp += (_, e) =>
-        {
-            if (e.Button == MouseButtons.Right) EntryEditForm.Show(target, isFolder: false);
-        };
-        return item;
-    }
-
-    private static ToolStripMenuItem CreatePasteItem(string targetFolder)
-    {
-        var item = Style(new ToolStripMenuItem("Aus Zwischenablage einfügen"));
-        item.Click += (_, _) => ClipboardPaste.PasteInto(targetFolder);
-        return item;
-    }
-
-    private static ToolStripMenuItem Style(ToolStripMenuItem item)
-    {
-        item.Padding = new Padding(4, 6, 4, 6);
-        return item;
-    }
-
-    /// <summary>Öffentlich, damit z. B. EntryEditForm dieselbe Anzeigelogik für
-    /// Meldungen wiederverwenden kann (z. B. im Suchschlitz).</summary>
-    public static string DisplayName(string name)
-    {
-        var ext = Path.GetExtension(name);
-        bool isShortcutType = ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
-                               ext.Equals(".url", StringComparison.OrdinalIgnoreCase);
-
-        string withoutExt = Path.GetFileNameWithoutExtension(name);
-        withoutExt = OrderPrefixHelper.Strip(withoutExt);
-
-        // Endung nur bei Verknüpfungen entfernen - bei echten Dateien ist sie
-        // eine nützliche Information.
-        string shown = isShortcutType ? withoutExt : withoutExt + ext;
-        return shown.Replace("&", "&&"); // & sonst als Tastenkürzel interpretiert
-    }
-}
-
-/// <summary>
-/// "Erweiterte Ansicht": ein eigenes Popup-Fenster statt eines Menüs - alle
-/// Einträge der aktuellen Ebene als große Kacheln in einem Raster (bis zu
-/// 9 Spalten/Reihen sichtbar, darüber hinaus scrollbar). Klick auf eine
-/// Datei-Kachel öffnet sie, Klick auf eine Ordner-Kachel navigiert im
-/// selben Fenster hinein. Rechtsklick bearbeitet wie im normalen Menü.
-/// </summary>
-internal sealed class TileGridForm : Form
-{
-    private const int Columns = 9;
-    private const int MaxVisibleRows = 9;
     private const int TileSize = 96;
     private const int TileGap = 10;
     private const int HeaderHeight = 40;
     private const int IconSize = 34;
 
-    // Helles, Windows-11-typisches Theme statt der ursprünglichen dunklen
-    // Variante - reine Geschmacksentscheidung, kein technischer Zwang.
+    // Helles, Windows-11-typisches Theme.
     private static readonly Color BackgroundColor = Color.FromArgb(246, 246, 248);
     private static readonly Color HeaderColor = Color.White;
     private static readonly Color BorderColor = Color.FromArgb(224, 224, 228);
@@ -706,23 +128,29 @@ internal sealed class TileGridForm : Form
     private static readonly Color TextColor = Color.FromArgb(32, 32, 32);
     private static readonly Color MutedTextColor = Color.FromArgb(96, 96, 100);
 
-    private readonly string _root;
+    private readonly EventWaitHandle _activateEvent;
+    private readonly string _root = Program.MenuRoot;
     private readonly FlowLayoutPanel _flow;
     private readonly Label _pathLabel;
     private readonly Button _back;
     private string _currentFolder;
     private string _filterQuery = "";
 
-    private TileGridForm(string root)
+    public MainForm(bool startedSilently, EventWaitHandle activateEvent)
     {
-        _root = root;
-        _currentFolder = root;
+        _activateEvent = activateEvent;
+        _currentFolder = _root;
 
-        FormBorderStyle = FormBorderStyle.None;
+        Text = "TaskbarLauncher";
+        Icon = LoadAppIcon();
+        ShowInTaskbar = true;
+        FormBorderStyle = FormBorderStyle.Sizable;
+        MinimizeBox = true;
+        MaximizeBox = true;
+        StartPosition = FormStartPosition.CenterScreen;
+        ClientSize = new Size(880, 620);
+        MinimumSize = new Size(480, 360);
         BackColor = BackgroundColor;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.Manual;
-        TopMost = true;
         KeyPreview = true;
 
         var header = new Panel { Dock = DockStyle.Top, Height = HeaderHeight, BackColor = HeaderColor };
@@ -766,8 +194,8 @@ internal sealed class TileGridForm : Form
         header.Controls.Add(paste);
         header.Resize += (_, _) => paste.Location = new Point(header.Width - paste.Width - 6, 5);
 
-        // Bewusst kein AutoScroll - wird zu voll, teilt RenderSections()
-        // die Gruppen stattdessen in der Mitte auf zwei nebeneinander
+        // Bewusst kein AutoScroll - wird zu voll, teilt RenderSections() die
+        // Kategorien stattdessen in der Mitte auf zwei nebeneinander
         // stehende Spalten auf, statt zu scrollen.
         _flow = new FlowLayoutPanel
         {
@@ -782,9 +210,9 @@ internal sealed class TileGridForm : Form
         Controls.Add(_flow);
         Controls.Add(header);
 
-        Deactivate += (_, _) => Close();
+        WindowState = startedSilently ? FormWindowState.Minimized : FormWindowState.Normal;
 
-        // Tippen bei geöffnetem Kachelraster filtert live, ganz ohne eigenes
+        // Tippen bei geöffnetem Fenster filtert live, ganz ohne eigenes
         // Eingabefeld - wie beim Windows-Startmenü. KeyPreview sorgt dafür,
         // dass die Form Tastendrücke bekommt, obwohl kein Steuerelement
         // fokussiert ist.
@@ -806,7 +234,7 @@ internal sealed class TileGridForm : Form
                 }
                 else
                 {
-                    Close();
+                    WindowState = FormWindowState.Minimized;
                 }
                 e.Handled = true;
             }
@@ -818,27 +246,129 @@ internal sealed class TileGridForm : Form
             }
         };
 
+        // Ein normales Fenster lässt sich in der Größe verändern - bei
+        // jeder tatsächlichen Größenänderung (nicht beim Minimieren selbst)
+        // müssen Zeilenumbruch/Spaltenaufteilung neu berechnet werden.
+        Resize += (_, _) =>
+        {
+            if (WindowState != FormWindowState.Minimized) RefreshTiles();
+        };
+
         Load += (_, _) => RefreshTiles();
+
+        new Thread(ListenForActivateRequests) { IsBackground = true }.Start();
     }
 
-    public static void ShowAt(string root, Point cursorPos)
+    protected override void OnHandleCreated(EventArgs e)
     {
-        var form = new TileGridForm(root);
-        var area = Screen.FromPoint(cursorPos).WorkingArea;
-
-        int width = Math.Min(Columns * (TileSize + TileGap) + TileGap, area.Width - 20);
-        int height = Math.Min(HeaderHeight + MaxVisibleRows * (TileSize + TileGap) + TileGap, area.Height - 20);
-
-        bool above = cursorPos.Y > area.Top + area.Height / 2;
-        int x = Math.Clamp(cursorPos.X, area.Left, area.Right - width);
-        int y = above ? cursorPos.Y - height : cursorPos.Y;
-        y = Math.Clamp(y, area.Top, area.Bottom - height);
-
-        form.Size = new Size(width, height);
-        form.Location = new Point(x, y);
-        form.Show();
-        form.Activate();
+        base.OnHandleCreated(e);
+        // Fehlschlag (z. B. Hotkey bereits durch ein anderes Programm belegt)
+        // wird bewusst stillschweigend ignoriert - die App bleibt trotzdem
+        // über die Taskleiste voll nutzbar.
+        RegisterHotKey(Handle, ShowHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_L);
+        RegisterHotKey(Handle, SearchHotkeyId, MOD_WIN | MOD_ALT | MOD_NOREPEAT, VK_Y);
     }
+
+    protected override void OnHandleDestroyed(EventArgs e)
+    {
+        UnregisterHotKey(Handle, ShowHotkeyId);
+        UnregisterHotKey(Handle, SearchHotkeyId);
+        base.OnHandleDestroyed(e);
+    }
+
+    /// <summary>
+    /// Läuft auf einem Hintergrund-Thread. Ein zweiter Programmstart (z. B.
+    /// Doppelklick, während bereits eine Instanz läuft) setzt dieses Signal
+    /// statt eine zweite Instanz zu starten - so holt sich das Fenster
+    /// zuverlässig in den Vordergrund.
+    /// </summary>
+    private void ListenForActivateRequests()
+    {
+        while (!IsDisposed)
+        {
+            if (_activateEvent.WaitOne(250) && !IsDisposed)
+            {
+                try { Invoke(new Action(() => BringToFrontKeepingState())); }
+                catch (ObjectDisposedException) { }
+                catch (InvalidOperationException) { }
+            }
+        }
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == ShowHotkeyId)
+        {
+            BringToFrontKeepingState();
+            return;
+        }
+
+        if (m.Msg == WM_HOTKEY && m.WParam.ToInt32() == SearchHotkeyId)
+        {
+            _currentFolder = _root;
+            _filterQuery = "";
+            RefreshTiles();
+            BringToFrontKeepingState();
+            return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    /// <summary>Schließen (X) minimiert nur - die App bleibt aktiv, damit sie
+    /// sofort wieder verfügbar ist statt bei jedem Klick neu starten zu müssen.</summary>
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        if (e.CloseReason == CloseReason.UserClosing)
+        {
+            e.Cancel = true;
+            WindowState = FormWindowState.Minimized;
+            return;
+        }
+        base.OnFormClosing(e);
+    }
+
+    private void BringToFrontKeepingState()
+    {
+        if (WindowState == FormWindowState.Minimized) WindowState = FormWindowState.Normal;
+        if (!Visible) Show();
+        Activate();
+        BringToFront();
+    }
+
+    private static Icon LoadAppIcon()
+    {
+        // Über die eingebettete Ressource geladen (nicht per
+        // Icon.ExtractAssociatedIcon), damit die volle Auflösungsreihe aus
+        // app.ico erhalten bleibt - Windows kann sich dann je nach Kontext
+        // (Taskleiste, DPI-Skalierung, Alt-Tab, ...) die passend scharfe
+        // Größe herausholen, statt eine einzelne kleine Auflösung
+        // hochzuskalieren.
+        try
+        {
+            using var stream = typeof(MainForm).Assembly.GetManifestResourceStream("TaskbarLauncher.app.ico");
+            if (stream is not null) return new Icon(stream);
+        }
+        catch
+        {
+            // Fällt unten auf die weniger scharfe Variante zurück.
+        }
+
+        try
+        {
+            return Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
+        }
+        catch
+        {
+            return SystemIcons.Application;
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
     private void NavigateUp()
     {
@@ -853,10 +383,10 @@ internal sealed class TileGridForm : Form
     private bool Matches(string name) =>
         _filterQuery.Length == 0 || name.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Ein Abschnitt im Raster: entweder eine Gruppe (mit Kopfzeile,
-    /// nur auf der Wurzelebene) oder die lose Datei-/Ordnerliste einer
-    /// einzelnen Ebene. Message statt Items zeigt nur einen Hinweistext
-    /// (leer/kein Zugriff/keine Treffer).</summary>
+    /// <summary>Ein Abschnitt im Raster: entweder eine Kategorie (mit
+    /// Kopfzeile, nur auf der Wurzelebene) oder die lose Datei-/Ordnerliste
+    /// einer einzelnen Ebene. Message statt Items zeigt nur einen
+    /// Hinweistext (leer/kein Zugriff/keine Treffer).</summary>
     private sealed class Section
     {
         public DirectoryInfo? Header;
@@ -898,11 +428,11 @@ internal sealed class TileGridForm : Form
         }
 
         var looseFiles = FilterVisible(entries.Where(e => e is FileInfo))
-            .Where(f => Matches(MenuBuilder.DisplayName(f.Name)))
+            .Where(f => Matches(MenuFs.DisplayName(f.Name)))
             .ToList();
         var folders = entries.OfType<DirectoryInfo>().ToList();
 
-        // Meistgenutzte Gruppen zuerst - noch ungenutzte Ordner (Summe 0)
+        // Meistgenutzte Kategorien zuerst - noch ungenutzte Ordner (Summe 0)
         // fallen alphabetisch dahinter, statt zufällig durcheinander zu wirken.
         var orderedFolders = folders
             .OrderByDescending(f => UsageStats.GetGroupTotal(_root, f.FullName))
@@ -914,7 +444,7 @@ internal sealed class TileGridForm : Form
 
         foreach (var folder in orderedFolders)
         {
-            bool folderNameMatches = Matches(MenuBuilder.DisplayName(folder.Name));
+            bool folderNameMatches = Matches(MenuFs.DisplayName(folder.Name));
 
             List<FileSystemInfo> children;
             try
@@ -933,7 +463,7 @@ internal sealed class TileGridForm : Form
             // aufzurufen); sonst nur die einzeln passenden Einträge.
             var visibleChildren = folderNameMatches
                 ? children
-                : [.. children.Where(c => Matches(MenuBuilder.DisplayName(c.Name)))];
+                : [.. children.Where(c => Matches(MenuFs.DisplayName(c.Name)))];
 
             if (_filterQuery.Length > 0 && visibleChildren.Count == 0) continue;
 
@@ -958,7 +488,7 @@ internal sealed class TileGridForm : Form
         }
 
         var visible = FilterVisible(entries)
-            .Where(e => Matches(MenuBuilder.DisplayName(e.Name)))
+            .Where(e => Matches(MenuFs.DisplayName(e.Name)))
             .ToList();
 
         return visible.Count == 0
@@ -1125,7 +655,7 @@ internal sealed class TileGridForm : Form
     {
         var header = new Label
         {
-            Text = MenuBuilder.DisplayName(folder.Name),
+            Text = MenuFs.DisplayName(folder.Name),
             AutoSize = true,
             ForeColor = TextColor,
             Font = new Font("Segoe UI", 12f, FontStyle.Bold),
@@ -1144,7 +674,7 @@ internal sealed class TileGridForm : Form
     {
         if (string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase)) return "Menü";
         string rel = Path.GetRelativePath(_root, _currentFolder).Replace('\\', '›');
-        return string.Join('›', rel.Split('›').Select(MenuBuilder.DisplayName));
+        return string.Join('›', rel.Split('›').Select(MenuFs.DisplayName));
     }
 
     private static Label InfoLabel(string text) => new()
@@ -1160,7 +690,7 @@ internal sealed class TileGridForm : Form
     {
         bool isFolder = entry is DirectoryInfo;
         string path = entry.FullName;
-        string label = MenuBuilder.DisplayName(entry.Name);
+        string label = MenuFs.DisplayName(entry.Name);
 
         var tile = new Panel
         {
@@ -1215,7 +745,9 @@ internal sealed class TileGridForm : Form
                 }
                 else
                 {
-                    Close();
+                    // Nur minimieren, nicht schließen - MainForm ist das
+                    // Hauptfenster der Anwendung, Close() würde die App beenden.
+                    WindowState = FormWindowState.Minimized;
                     UsageStats.RecordOpen(_root, path);
                     Launcher.Open(path);
                 }
@@ -1232,207 +764,236 @@ internal sealed class TileGridForm : Form
 
         return tile;
     }
-
-    // Kein eigener Dispose-Override nötig - Form.Dispose räumt die
-    // Controls-Hierarchie (inklusive aller Kacheln in _flow) bereits ab.
 }
 
 /// <summary>
-/// Echtzeit-Suchschlitz (Win+Alt+Y): Eingabefeld direkt fokussiert, jeder
-/// Tastendruck filtert live über alle Dateien der gesamten Menü-Hierarchie
-/// (rekursiv, unabhängig von der Verschachtelungstiefe). Pfeiltasten zum
-/// Navigieren, Enter öffnet den markierten Treffer.
+/// Zählt, wie oft ein Eintrag geöffnet wurde, persistiert als einfache
+/// "Anzahl&lt;TAB&gt;Schlüssel"-Textdatei. Der Schlüssel ist der relative Pfad ab
+/// dem Menü-Ordner mit entfernten Sortier-Präfixen ("01 " etc.) an jedem
+/// Segment - dadurch übersteht die Statistik das manuelle Umsortieren
+/// (das nur Präfixe ändert), nicht aber ein echtes Umbenennen.
 /// </summary>
-internal sealed class SearchForm : Form
+internal static class UsageStats
 {
-    private const int MaxResults = 30;
-    private const int RowHeight = 40;
+    private static readonly string FilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "TaskbarLauncher", "usage.txt");
 
-    private static readonly Color BackgroundColor = Color.FromArgb(32, 32, 36);
-    private static readonly Color InputColor = Color.FromArgb(24, 24, 28);
-    private static readonly Color RowSelectedColor = Color.FromArgb(50, 50, 58);
+    private static Dictionary<string, int>? _cache;
 
-    private readonly string _root;
-    private readonly TextBox _searchBox;
-    private readonly ListBox _results;
-    private List<FileInfo> _matches = [];
-
-    private SearchForm(string root)
+    public static void RecordOpen(string root, string fullPath)
     {
-        _root = root;
-
-        FormBorderStyle = FormBorderStyle.None;
-        BackColor = BackgroundColor;
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.Manual;
-        TopMost = true;
-        KeyPreview = true;
-
-        _searchBox = new TextBox
-        {
-            Dock = DockStyle.Top,
-            Font = new Font("Segoe UI", 14f),
-            BackColor = InputColor,
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.None,
-            PlaceholderText = "Tippen zum Suchen…"
-        };
-        _searchBox.Height = _searchBox.PreferredHeight + 16;
-
-        _results = new ListBox
-        {
-            Dock = DockStyle.Fill,
-            BackColor = BackgroundColor,
-            ForeColor = Color.White,
-            BorderStyle = BorderStyle.None,
-            DrawMode = DrawMode.OwnerDrawFixed,
-            ItemHeight = RowHeight,
-            IntegralHeight = false,
-            Font = new Font("Segoe UI", 10.5f)
-        };
-        _results.DrawItem += ResultsOnDrawItem;
-        _results.MouseDown += (_, e) =>
-        {
-            int index = _results.IndexFromPoint(e.Location);
-            if (index < 0) return;
-            _results.SelectedIndex = index;
-            OpenSelected();
-        };
-
-        _searchBox.TextChanged += (_, _) => RunSearch();
-        _searchBox.KeyDown += SearchBoxOnKeyDown;
-
-        Controls.Add(_results);
-        Controls.Add(_searchBox);
-
-        Deactivate += (_, _) => Close();
-        KeyDown += (_, e) => { if (e.KeyCode == Keys.Escape) Close(); };
-
-        Load += (_, _) => RunSearch();
+        var stats = Load();
+        string key = KeyFor(root, fullPath);
+        stats[key] = stats.GetValueOrDefault(key) + 1;
+        Save();
     }
 
-    public static void ShowAt(string root, Point cursorPos)
+    public static int GetCount(string root, string fullPath) =>
+        Load().GetValueOrDefault(KeyFor(root, fullPath), 0);
+
+    /// <summary>Summe aller Öffnungen von Dateien unterhalb von folder (rekursiv) - für die Kategorien-Sortierung.</summary>
+    public static int GetGroupTotal(string root, string folder)
     {
-        var form = new SearchForm(root);
-        var area = Screen.FromPoint(cursorPos).WorkingArea;
-
-        int width = Math.Min(520, area.Width - 20);
-        int height = Math.Min(480, area.Height - 20);
-
-        bool above = cursorPos.Y > area.Top + area.Height / 2;
-        int x = Math.Clamp(cursorPos.X, area.Left, area.Right - width);
-        int y = above ? cursorPos.Y - height : cursorPos.Y;
-        y = Math.Clamp(y, area.Top, area.Bottom - height);
-
-        form.Size = new Size(width, height);
-        form.Location = new Point(x, y);
-        form.Show();
-        form.Activate();
-        form._searchBox.Focus();
-    }
-
-    private void RunSearch()
-    {
-        string query = _searchBox.Text.Trim();
-
-        if (query.Length == 0)
+        int total = 0;
+        try
         {
-            _matches = [];
+            foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories))
+                total += GetCount(root, file);
         }
-        else
+        catch (UnauthorizedAccessException) { }
+        return total;
+    }
+
+    private static string KeyFor(string root, string fullPath)
+    {
+        string rel = Path.GetRelativePath(root, fullPath);
+        var segments = rel.Split(Path.DirectorySeparatorChar).Select(OrderPrefixHelper.Strip);
+        return string.Join('/', segments);
+    }
+
+    private static Dictionary<string, int> Load()
+    {
+        if (_cache is not null) return _cache;
+
+        _cache = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        if (File.Exists(FilePath))
         {
-            List<FileInfo> files;
+            foreach (var line in File.ReadAllLines(FilePath))
+            {
+                int tab = line.IndexOf('\t');
+                if (tab < 0) continue;
+                if (int.TryParse(line.AsSpan(0, tab), out int count))
+                    _cache[line[(tab + 1)..]] = count;
+            }
+        }
+        return _cache;
+    }
+
+    private static void Save()
+    {
+        if (_cache is null) return;
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+            File.WriteAllLines(FilePath, _cache.Select(kv => $"{kv.Value}\t{kv.Key}"));
+        }
+        catch
+        {
+            // Statistik ist ein "nice to have" - ein Schreibfehler soll nie
+            // das eigentliche Öffnen eines Eintrags verhindern.
+        }
+    }
+}
+
+/// <summary>Zahlen-Präfixe wie "01 " für die manuelle Sortierung - werden in der Anzeige ausgeblendet.</summary>
+internal static class OrderPrefixHelper
+{
+    public static readonly Regex Regex = new(@"^\d+\s*[\s._\-]\s*", RegexOptions.Compiled);
+
+    public static string Strip(string name) => Regex.Replace(name, "");
+
+    public static string Extract(string name)
+    {
+        var m = Regex.Match(name);
+        return m.Success ? m.Value : "";
+    }
+}
+
+/// <summary>
+/// Räumt einmalig die " [123]"-Codesuffixe eines früheren Prototyps aus
+/// vorhandenen Dateinamen wieder heraus. Läuft bei jedem Anzeigen; sobald
+/// alle Namen bereinigt sind, ist es ein reiner No-op-Scan.
+/// </summary>
+internal static class LegacyCodeCleanup
+{
+    private static readonly Regex Suffix = new(@"\s*\[(\d{3})\]$", RegexOptions.Compiled);
+
+    public static void StripAll(string root)
+    {
+        if (!Directory.Exists(root)) return;
+
+        List<string> files;
+        try { files = [.. Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)]; }
+        catch (UnauthorizedAccessException) { return; }
+
+        foreach (var file in files)
+        {
+            string baseName = Path.GetFileNameWithoutExtension(file);
+            if (!Suffix.IsMatch(baseName)) continue;
+
+            string cleanBase = Suffix.Replace(baseName, "");
+            string ext = Path.GetExtension(file);
+            string dir = Path.GetDirectoryName(file)!;
+            string newPath = Path.Combine(dir, cleanBase + ext);
+
+            for (int n = 2; File.Exists(newPath); n++)
+                newPath = Path.Combine(dir, $"{cleanBase} ({n}){ext}");
+
             try
             {
-                files = [.. Directory.EnumerateFiles(_root, "*", SearchOption.AllDirectories)
-                                      .Select(p => new FileInfo(p))
-                                      .Where(MenuFs.IsVisible)
-                                      .Where(f => !f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
-                                      .Where(f => !MenuFs.IsSeparatorFile(f))];
+                File.Move(file, newPath);
+                IconCache.Invalidate(file);
             }
-            catch (UnauthorizedAccessException)
+            catch
             {
-                files = [];
+                // Datei evtl. gerade in Benutzung o.ä. - beim nächsten Öffnen erneut versuchen.
             }
-
-            _matches = files
-                .Select(f => (File: f, Name: MenuBuilder.DisplayName(f.Name)))
-                .Where(x => x.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(x => x.Name.StartsWith(query, StringComparison.OrdinalIgnoreCase))
-                .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
-                .Take(MaxResults)
-                .Select(x => x.File)
-                .ToList();
         }
+    }
+}
 
-        _results.BeginUpdate();
-        _results.Items.Clear();
-        foreach (var f in _matches) _results.Items.Add(f.FullName);
-        _results.EndUpdate();
+/// <summary>Liest ein Verzeichnis konsistent für Anzeige *und* manuelle Sortierung aus.</summary>
+internal static class MenuFs
+{
+    public static List<FileSystemInfo> GetOrderedEntries(string folder)
+    {
+        var dir = new DirectoryInfo(folder);
+        if (!dir.Exists) return [];
 
-        if (_results.Items.Count > 0) _results.SelectedIndex = 0;
+        return [.. dir.EnumerateFileSystemInfos()
+                      .Where(IsVisible)
+                      .Where(f => !f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase))
+                      .OrderBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase)];
     }
 
-    private void ResultsOnDrawItem(object? sender, DrawItemEventArgs e)
+    public static bool IsVisible(FileSystemInfo fsi)
+        => (fsi.Attributes & (FileAttributes.Hidden | FileAttributes.System)) == 0;
+
+    /// <summary>Eine Datei wie "---" oder "---.txt" ist eine Trennlinie, kein echter Eintrag.</summary>
+    public static bool IsSeparatorFile(FileInfo file)
     {
-        if (e.Index < 0 || e.Index >= _matches.Count) { e.DrawBackground(); return; }
-
-        var file = _matches[e.Index];
-        bool selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-
-        using (var bg = new SolidBrush(selected ? RowSelectedColor : BackgroundColor))
-            e.Graphics.FillRectangle(bg, e.Bounds);
-
-        var icon = IconCache.Get(file.FullName);
-        if (icon is not null)
-            e.Graphics.DrawImage(icon, new Rectangle(e.Bounds.X + 8, e.Bounds.Y + 6, 28, 28));
-
-        string name = MenuBuilder.DisplayName(file.Name);
-        string relDir = Path.GetRelativePath(_root, file.DirectoryName ?? _root);
-        string path = relDir == "." ? "" : string.Join(" › ", relDir.Split(Path.DirectorySeparatorChar).Select(MenuBuilder.DisplayName));
-
-        using var nameBrush = new SolidBrush(Color.White);
-        using var pathBrush = new SolidBrush(Color.Gainsboro);
-        using var pathFont = new Font(_results.Font.FontFamily, 8f);
-
-        e.Graphics.DrawString(name, _results.Font, nameBrush, e.Bounds.X + 44, e.Bounds.Y + 3);
-        if (path.Length > 0)
-            e.Graphics.DrawString(path, pathFont, pathBrush, e.Bounds.X + 44, e.Bounds.Y + 22);
+        var bare = OrderPrefixHelper.Strip(Path.GetFileNameWithoutExtension(file.Name));
+        return bare.Length > 0 && bare.All(c => c == '-');
     }
 
-    private void SearchBoxOnKeyDown(object? sender, KeyEventArgs e)
+    /// <summary>Der Name, wie er im Fenster angezeigt wird: ohne Sortier-Präfix,
+    /// und bei Verknüpfungen (.lnk/.url) ohne die Endung.</summary>
+    public static string DisplayName(string name)
     {
-        switch (e.KeyCode)
+        var ext = Path.GetExtension(name);
+        bool isShortcutType = ext.Equals(".lnk", StringComparison.OrdinalIgnoreCase) ||
+                               ext.Equals(".url", StringComparison.OrdinalIgnoreCase);
+
+        string withoutExt = Path.GetFileNameWithoutExtension(name);
+        withoutExt = OrderPrefixHelper.Strip(withoutExt);
+
+        string shown = isShortcutType ? withoutExt : withoutExt + ext;
+        return shown;
+    }
+}
+
+/// <summary>
+/// Manuelles Verschieben eines Eintrags innerhalb seiner Ebene. Sobald zum
+/// ersten Mal verschoben wird, bekommen alle Geschwister durchgängige
+/// "01 ", "02 ", ... Präfixe, damit die Reihenfolge ab dann exakt und
+/// dauerhaft kontrollierbar ist.
+/// </summary>
+internal static class MenuOrder
+{
+    public static bool CanMove(string entryPath, int direction)
+    {
+        var siblings = GetOrderedSiblingPaths(entryPath);
+        int index = siblings.FindIndex(p => string.Equals(p, entryPath, StringComparison.OrdinalIgnoreCase));
+        int target = index + direction;
+        return index >= 0 && target >= 0 && target < siblings.Count;
+    }
+
+    /// <summary>Verschiebt den Eintrag um eine Position und gibt seinen (ggf. neuen) Pfad zurück.</summary>
+    public static string Move(string entryPath, int direction)
+    {
+        string parent = Path.GetDirectoryName(entryPath)!;
+        var siblings = GetOrderedSiblingPaths(entryPath);
+
+        int index = siblings.FindIndex(p => string.Equals(p, entryPath, StringComparison.OrdinalIgnoreCase));
+        int target = index + direction;
+        if (index < 0 || target < 0 || target >= siblings.Count) return entryPath;
+
+        (siblings[index], siblings[target]) = (siblings[target], siblings[index]);
+
+        string movedPath = entryPath;
+        for (int i = 0; i < siblings.Count; i++)
         {
-            case Keys.Down:
-                if (_results.Items.Count > 0)
-                    _results.SelectedIndex = Math.Min(_results.SelectedIndex + 1, _results.Items.Count - 1);
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-                break;
+            string oldPath = siblings[i];
+            string baseName = OrderPrefixHelper.Strip(Path.GetFileName(oldPath));
+            string newPath = Path.Combine(parent, $"{i + 1:00} {baseName}");
 
-            case Keys.Up:
-                if (_results.Items.Count > 0)
-                    _results.SelectedIndex = Math.Max(_results.SelectedIndex - 1, 0);
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-                break;
+            if (string.Equals(oldPath, newPath, StringComparison.Ordinal)) continue;
 
-            case Keys.Enter:
-                OpenSelected();
-                e.Handled = true;
-                e.SuppressKeyPress = true;
-                break;
+            if (Directory.Exists(oldPath)) Directory.Move(oldPath, newPath);
+            else File.Move(oldPath, newPath);
+
+            IconCache.Invalidate(oldPath);
+
+            if (string.Equals(oldPath, entryPath, StringComparison.OrdinalIgnoreCase))
+                movedPath = newPath;
         }
+
+        return movedPath;
     }
 
-    private void OpenSelected()
-    {
-        if (_results.SelectedIndex < 0 || _results.SelectedIndex >= _matches.Count) return;
-        string target = _matches[_results.SelectedIndex].FullName;
-        Close();
-        Launcher.Open(target);
-    }
+    private static List<string> GetOrderedSiblingPaths(string entryPath)
+        => [.. MenuFs.GetOrderedEntries(Path.GetDirectoryName(entryPath)!).Select(f => f.FullName)];
 }
 
 internal static class Launcher
