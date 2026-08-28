@@ -45,7 +45,7 @@ Just start typing while the window is focused — every keystroke filters the cu
 A named mutex keeps a second launch from ever starting a duplicate process — it just tells the running instance to come to the front instead, so a stray double-click never does nothing. Closing the window (✕) only minimizes it to the taskbar; the app keeps running so it's instantly available again.
 
 **🪟 Jumps to what's already open instead of duplicating it**
-Opening a `.exe`/`.lnk` entry whose program is already running switches to its window instead of starting a second instance (matched by the running process's actual path — reliable). Opening a `.url` entry checks known browsers for an already-open tab whose title matches the entry's name, via UI Automation, and switches to that tab instead of opening a new one. There's no general Windows API for "is this URL already open" — browsers only expose the visible tab *title* through their accessibility tree, not the URL — so this is a best-effort title match; if nothing matches (or the browser isn't one of the well-known ones), it just opens normally.
+Opening a `.exe`/`.lnk` entry whose program is already running switches to its window instead of starting a second instance, matched by the running process's actual executable path. `.url` entries just open normally in the browser — opening a link that's already in a tab is harmless there, so no extra matching needed.
 
 ---
 

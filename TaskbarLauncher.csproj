@@ -4,11 +4,6 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
-    <!-- Nur für UIAutomationClient/UIAutomationTypes (siehe unten) - diese
-         Assemblies gehören zum WPF-, nicht zum WinForms-Shared-Framework
-         und lösen sonst nicht auf ("Der Typ- oder Namespacename
-         'Automation' ist im Namespace 'System.Windows' nicht vorhanden"). -->
-    <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>TaskbarLauncher</RootNamespace>
@@ -32,33 +27,6 @@
          Auflösung, die für die Taskleiste hochskaliert und dadurch
          unscharf wird. -->
     <EmbeddedResource Include="app.ico" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- UI Automation (System.Windows.Automation), Teil des Windows-Desktop-
-         Shared-Frameworks - für BrowserTabFocus (siehe Program.cs), das
-         offene Browser-Tabs findet statt einen neuen zu öffnen. -->
-    <Reference Include="UIAutomationClient" />
-    <Reference Include="UIAutomationTypes" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- UseWPF fügt automatisch globale Usings für diese WPF-Namespaces
-         hinzu - die kollidieren namentlich mit WinForms/System.Drawing
-         (Point, Size, Color, MessageBox, Application, Clipboard, ...) und
-         würden den ganzen Code mehrdeutig machen. System.Windows.Automation
-         selbst ist ein eigener Namespace ohne solche Kollisionen und bleibt
-         unberührt - nur diese hier werden wieder entfernt. -->
-    <Using Remove="System.Windows" />
-    <Using Remove="System.Windows.Controls" />
-    <Using Remove="System.Windows.Data" />
-    <Using Remove="System.Windows.Documents" />
-    <Using Remove="System.Windows.Input" />
-    <Using Remove="System.Windows.Media" />
-    <Using Remove="System.Windows.Media.Animation" />
-    <Using Remove="System.Windows.Media.Imaging" />
-    <Using Remove="System.Windows.Navigation" />
-    <Using Remove="System.Windows.Shapes" />
   </ItemGroup>
 
 </Project>
