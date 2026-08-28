@@ -149,7 +149,9 @@ internal sealed class MainForm : Form
         MinimizeBox = true;
         MaximizeBox = true;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(880, 620);
+        // Breit genug, damit zwei Kategorie-Spalten (siehe CategoryColumnWidth)
+        // von Anfang an nebeneinander passen, statt erst durch Verbreitern.
+        ClientSize = new Size(980, 680);
         MinimumSize = new Size(480, 360);
         BackColor = BackgroundColor;
         KeyPreview = true;
@@ -195,15 +197,18 @@ internal sealed class MainForm : Form
         header.Controls.Add(paste);
         header.Resize += (_, _) => paste.Location = new Point(header.Width - paste.Width - 6, 5);
 
-        // Bewusst kein AutoScroll - wird zu voll, teilt RenderSections() die
-        // Kategorien stattdessen in der Mitte auf zwei nebeneinander
-        // stehende Spalten auf, statt zu scrollen.
+        // Bewusst kein AutoScroll: TopDown + WrapContents lässt das
+        // FlowLayoutPanel stattdessen automatisch in eine neue Spalte
+        // rechts daneben umbrechen, sobald eine Spalte die verfügbare Höhe
+        // überschreitet - dieselbe eingebaute Umbruchlogik wie bei
+        // LeftToRight-Flows, nur um 90° gedreht. Deutlich robuster als eine
+        // eigene "erst messen, dann ggf. zweispaltig aufteilen"-Logik.
         _flow = new FlowLayoutPanel
         {
             Dock = DockStyle.Fill,
             AutoScroll = false,
             FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
+            WrapContents = true,
             BackColor = BackgroundColor,
             Padding = new Padding(TileGap)
         };
@@ -497,14 +502,19 @@ internal sealed class MainForm : Form
             : [new Section { Items = visible }];
     }
 
+    // Breite einer Kategorie-Karte: genug für ca. 4 Kacheln nebeneinander.
+    // Passt das Fenster mehrere davon in der Breite, ordnet das native
+    // Umbrechen des _flow-Panels (TopDown + WrapContents) sie automatisch
+    // in so viele Spalten an, wie Platz da ist.
+    private const int CategoryColumnWidth = 460;
+
     /// <summary>
-    /// Misst zuerst (über wegwerfbare Steuerelemente, nie einem Parent
-    /// zugeordnet), ob alle Abschnitte einspaltig über die volle Breite in
-    /// die verfügbare Höhe passen. Falls nicht (und es mehr als einen
-    /// Abschnitt gibt), werden sie in der Mitte geteilt und als zwei
-    /// nebeneinander stehende Spalten gerendert - das Raster scrollt nie.
-    /// Baut den eigentlichen Inhalt danach genau einmal, direkt in der
-    /// bereits feststehenden Spaltenzahl.
+    /// Baut jede Kategorie als eine einzelne, in sich geschlossene Karte
+    /// (Kopfzeile + Kacheln + Trennlinie in einem nicht umbrechenden
+    /// Panel) und übergibt sie dem äußeren _flow-Panel. Das erledigt den
+    /// Spaltenumbruch selbst - bricht eine Karte die verfügbare Höhe, geht
+    /// die nächste automatisch in eine neue Spalte rechts daneben. Kein
+    /// Scrollen, keine eigene Mess-Logik nötig.
     /// </summary>
     private void RenderSections(List<Section> sections)
     {
@@ -513,119 +523,44 @@ internal sealed class MainForm : Form
         _flow.Controls.Clear();
         foreach (Control c in oldControls) c.Dispose();
 
-        int fullWidth = Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2);
-        int estimatedHeight = MeasureSectionsHeight(sections, fullWidth);
+        int columnWidth = Math.Min(CategoryColumnWidth,
+            Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2));
 
-        if (sections.Count <= 1 || estimatedHeight <= _flow.ClientSize.Height)
-        {
-            var column = BuildColumnPanel(fullWidth);
-            RenderSectionsIntoColumn(column, fullWidth, sections);
-            _flow.Controls.Add(column);
-        }
-        else
-        {
-            int half = (sections.Count + 1) / 2;
-            var left = sections.Take(half).ToList();
-            var right = sections.Skip(half).ToList();
-            int columnWidth = Math.Max(TileSize, (fullWidth - TileGap) / 2);
-
-            var row = new FlowLayoutPanel
-            {
-                FlowDirection = FlowDirection.LeftToRight,
-                WrapContents = false,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
-                BackColor = BackgroundColor,
-                Margin = new Padding(0)
-            };
-
-            var leftColumn = BuildColumnPanel(columnWidth);
-            RenderSectionsIntoColumn(leftColumn, columnWidth, left);
-            leftColumn.Margin = new Padding(0, 0, TileGap, 0);
-
-            var rightColumn = BuildColumnPanel(columnWidth);
-            RenderSectionsIntoColumn(rightColumn, columnWidth, right);
-            rightColumn.Margin = new Padding(0);
-
-            row.Controls.Add(leftColumn);
-            row.Controls.Add(rightColumn);
-            _flow.Controls.Add(row);
-        }
+        foreach (var section in sections)
+            _flow.Controls.Add(BuildSectionCard(section, columnWidth));
 
         _flow.ResumeLayout();
     }
 
-    /// <summary>
-    /// Summiert PreferredSize.Height über einzeln (und sofort wieder
-    /// entsorgte) aufgebaute Kontrollelemente. Bewusst KEINE verschachtelte
-    /// AutoSize-Höhenmessung über ein umschließendes Panel - das hat sich
-    /// bei nicht eingehängten Controls als unzuverlässig erwiesen (maß zu
-    /// niedrig, sodass echter Überlauf nicht erkannt wurde).
-    /// </summary>
-    private int MeasureSectionsHeight(List<Section> sections, int widthPx)
+    private Control BuildSectionCard(Section s, int widthPx)
     {
-        int total = 0;
-        for (int i = 0; i < sections.Count; i++)
+        var card = new FlowLayoutPanel
         {
-            var s = sections[i];
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MaximumSize = new Size(widthPx, 0),
+            BackColor = BackgroundColor,
+            Margin = new Padding(0, 0, TileGap, TileGap)
+        };
 
-            if (s.Header is not null)
-            {
-                using var header = BuildGroupHeader(s.Header);
-                total += header.PreferredSize.Height + header.Margin.Vertical;
-            }
+        if (s.Header is not null) card.Controls.Add(BuildGroupHeader(s.Header));
 
-            if (s.Message is not null)
-            {
-                using var info = InfoLabel(s.Message);
-                total += info.PreferredSize.Height + info.Margin.Vertical;
-            }
-            else
-            {
-                using var contentRow = BuildTileRow(s.Items!, widthPx);
-                total += contentRow.PreferredSize.Height + contentRow.Margin.Vertical;
-            }
+        card.Controls.Add(s.Message is not null
+            ? InfoLabel(s.Message)
+            : BuildTileRow(s.Items!, widthPx));
 
-            if (i < sections.Count - 1)
-            {
-                using var sep = BuildSeparator(widthPx);
-                total += sep.Height + sep.Margin.Vertical;
-            }
-        }
-        return total;
-    }
+        card.Controls.Add(BuildSeparator(widthPx));
 
-    private FlowLayoutPanel BuildColumnPanel(int widthPx) => new()
-    {
-        FlowDirection = FlowDirection.TopDown,
-        WrapContents = false,
-        AutoSize = true,
-        AutoSizeMode = AutoSizeMode.GrowAndShrink,
-        MaximumSize = new Size(widthPx, 0),
-        BackColor = BackgroundColor,
-        Margin = new Padding(0)
-    };
-
-    private void RenderSectionsIntoColumn(FlowLayoutPanel column, int widthPx, List<Section> sections)
-    {
-        for (int i = 0; i < sections.Count; i++)
-        {
-            var s = sections[i];
-            if (s.Header is not null) column.Controls.Add(BuildGroupHeader(s.Header));
-
-            column.Controls.Add(s.Message is not null
-                ? InfoLabel(s.Message)
-                : BuildTileRow(s.Items!, widthPx));
-
-            if (i < sections.Count - 1) column.Controls.Add(BuildSeparator(widthPx));
-        }
+        return card;
     }
 
     private Panel BuildSeparator(int widthPx) => new()
     {
         Size = new Size(Math.Max(TileSize, widthPx), 1),
         BackColor = BorderColor,
-        Margin = new Padding(0, 4, 0, 4)
+        Margin = new Padding(0, 4, 0, 0)
     };
 
     private static List<FileSystemInfo> FilterVisible(IEnumerable<FileSystemInfo> entries) =>
