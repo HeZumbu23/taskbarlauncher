@@ -79,7 +79,7 @@ This makes the app start minimized on login instead of popping its window open i
 
 ### Deploy script
 
-For local development: `deploy.ps1` watches the current branch and redeploys automatically whenever new commits land — no manual "pull, rebuild, relaunch" cycle.
+For local development: `deploy.ps1` deploys immediately on startup, then keeps watching the current branch and redeploys automatically whenever new commits land — no manual "pull, rebuild, relaunch" cycle.
 
 ```powershell
 .\deploy.ps1                      # watch, checking every 60s (default)

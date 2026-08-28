@@ -2,7 +2,8 @@
 .SYNOPSIS
     Watches the current branch for new commits and redeploys automatically.
 .DESCRIPTION
-    Every -IntervalSeconds (default 60), fetches from origin. Only when the
+    Deploys immediately once on startup, then watches: every
+    -IntervalSeconds (default 60), fetches from origin. Only when the
     remote branch actually has new commits does it stop the running
     instance, pull, rebuild (Release), and relaunch - an unchanged remote
     is a silent no-op. Press Ctrl+C to stop watching.
@@ -71,7 +72,12 @@ if ($Once) {
     return
 }
 
+# Auch beim Start einmal bauen/starten, nicht erst beim ersten erkannten
+# Commit - sonst läuft nach dem Start erstmal keine (aktuelle) Version.
+Invoke-Deploy
+
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
+Write-Host ""
 Write-Host "Watching for new commits every $IntervalSeconds s. Press Ctrl+C to stop." -ForegroundColor Yellow
 
 while ($true) {
