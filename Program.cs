@@ -116,9 +116,9 @@ internal sealed class MainForm : Form
     private const uint VK_Y = 0x59;
 
     private const int TileSize = 96;
+    private const int TileHeight = 44; // flach statt quadratisch - kein Icon mehr, Platzgründe
     private const int TileGap = 10;
     private const int HeaderHeight = 40;
-    private const int IconSize = 34;
 
     // Helles, Windows-11-typisches Theme.
     private static readonly Color BackgroundColor = Color.FromArgb(246, 246, 248);
@@ -621,6 +621,11 @@ internal sealed class MainForm : Form
         Location = new Point(TileGap, TileGap)
     };
 
+    /// <summary>
+    /// Bewusst ohne Icon - nur Text, damit die Kachel flach bleibt und mehr
+    /// Einträge auf einen Blick reinpassen (Platzgründe). IconCache bleibt
+    /// im Code, falls Icons später wieder gewünscht sind.
+    /// </summary>
     private Control BuildTile(FileSystemInfo entry)
     {
         bool isFolder = entry is DirectoryInfo;
@@ -629,7 +634,7 @@ internal sealed class MainForm : Form
 
         var tile = new Panel
         {
-            Size = new Size(TileSize, TileSize),
+            Size = new Size(TileSize, TileHeight),
             Margin = new Padding(TileGap / 2),
             BackColor = TileColor,
             Cursor = Cursors.Hand
@@ -640,27 +645,17 @@ internal sealed class MainForm : Form
             e.Graphics.DrawRectangle(pen, 0, 0, tile.Width - 1, tile.Height - 1);
         };
 
-        var icon = new PictureBox
-        {
-            Image = IconCache.Get(path),
-            SizeMode = PictureBoxSizeMode.Zoom,
-            Size = new Size(IconSize, IconSize),
-            Location = new Point((TileSize - IconSize) / 2, 14),
-            BackColor = Color.Transparent
-        };
-
         var caption = new Label
         {
             Text = label,
             ForeColor = TextColor,
-            TextAlign = ContentAlignment.TopCenter,
-            Font = new Font("Segoe UI", 8f),
-            Location = new Point(2, 14 + IconSize + 6),
-            Size = new Size(TileSize - 4, TileSize - (14 + IconSize + 6) - 2),
+            TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI", 8.5f),
+            Dock = DockStyle.Fill,
+            Padding = new Padding(6, 0, 6, 0),
             AutoEllipsis = true
         };
 
-        tile.Controls.Add(icon);
         tile.Controls.Add(caption);
 
         void OnMouseUp(object? _, MouseEventArgs e)
@@ -694,7 +689,7 @@ internal sealed class MainForm : Form
             }
         }
 
-        foreach (Control c in new Control[] { tile, icon, caption })
+        foreach (Control c in new Control[] { tile, caption })
             c.MouseUp += OnMouseUp;
 
         return tile;
