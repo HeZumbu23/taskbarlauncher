@@ -568,15 +568,13 @@ internal sealed class MainForm : Form
             .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
             .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))];
 
-    /// <summary>Eine horizontal umbrechende Zeile aus Links mit begrenzter
-    /// Breite, damit sie tatsächlich mehrzeilig umbricht statt einfach immer
-    /// breiter zu werden.</summary>
+    /// <summary>Eine Spalte aus Links, ein Eintrag pro Zeile.</summary>
     private FlowLayoutPanel BuildTileRow(IEnumerable<FileSystemInfo> entries, int widthPx)
     {
         var row = new FlowLayoutPanel
         {
-            FlowDirection = FlowDirection.LeftToRight,
-            WrapContents = true,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             MaximumSize = new Size(widthPx, 0),
@@ -644,7 +642,7 @@ internal sealed class MainForm : Form
             Font = regularFont,
             Cursor = Cursors.Hand,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 4, 20, 4)
+            Margin = new Padding(0, 3, 0, 3)
         };
 
         link.MouseEnter += (_, _) => link.Font = underlineFont;
