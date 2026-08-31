@@ -120,6 +120,10 @@ Both were chosen because Windows reserves very few Win+Alt combinations (mostly 
 - Remember window size/position across sessions
 - Per-category custom accent colors
 
+## License
+
+[MIT](LICENSE) — permissive, no copyleft, safe for commercial/enterprise use.
+
 ---
 
 Built as a small, dependency-free WinForms app (.NET 8) — shortcut creation goes through the `WScript.Shell` COM automation object that ships with every Windows install, so there's nothing extra to install beyond the .NET runtime bundled into the published `.exe`.
