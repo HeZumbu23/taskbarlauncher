@@ -115,8 +115,9 @@ internal sealed class MainForm : Form
     private const uint VK_L = 0x4C;
     private const uint VK_Y = 0x59;
 
-    private const int TileSize = 170; // breit genug für die meisten Link-/Dateinamen ohne Abschneiden
-    private const int TileHeight = 44; // flach statt quadratisch - kein Icon mehr, Platzgründe
+    // Keine feste Kachelgröße mehr (reine Text-Links) - nur noch eine
+    // Mindestbreite für Spalten/Trennlinien.
+    private const int MinColumnWidth = 170;
     private const int TileGap = 10;
     private const int HeaderHeight = 40;
 
@@ -124,9 +125,9 @@ internal sealed class MainForm : Form
     private static readonly Color BackgroundColor = Color.FromArgb(246, 246, 248);
     private static readonly Color HeaderColor = Color.White;
     private static readonly Color BorderColor = Color.FromArgb(224, 224, 228);
-    private static readonly Color TileColor = Color.White;
     private static readonly Color TextColor = Color.FromArgb(32, 32, 32);
     private static readonly Color MutedTextColor = Color.FromArgb(96, 96, 100);
+    private static readonly Color LinkColor = Color.FromArgb(0, 102, 204);
 
     private readonly EventWaitHandle _activateEvent;
     private readonly string _root = Program.MenuRoot;
@@ -523,7 +524,7 @@ internal sealed class MainForm : Form
         foreach (Control c in oldControls) c.Dispose();
 
         int columnWidth = Math.Min(CategoryColumnWidth,
-            Math.Max(TileSize, _flow.ClientSize.Width - TileGap * 2));
+            Math.Max(MinColumnWidth, _flow.ClientSize.Width - TileGap * 2));
 
         foreach (var section in sections)
             _flow.Controls.Add(BuildSectionCard(section, columnWidth));
@@ -557,7 +558,7 @@ internal sealed class MainForm : Form
 
     private Panel BuildSeparator(int widthPx) => new()
     {
-        Size = new Size(Math.Max(TileSize, widthPx), 1),
+        Size = new Size(Math.Max(MinColumnWidth, widthPx), 1),
         BackColor = BorderColor,
         Margin = new Padding(0, 4, 0, 0)
     };
@@ -567,9 +568,9 @@ internal sealed class MainForm : Form
             .Where(e => e is DirectoryInfo || !MenuFs.IsSeparatorFile((FileInfo)e))
             .Where(e => !(e is FileInfo f && f.Name.Equals("desktop.ini", StringComparison.OrdinalIgnoreCase)))];
 
-    /// <summary>Ein horizontal umbrechendes Kachel-"Regal" mit fester Breite,
-    /// damit es tatsächlich mehrzeilig umbricht statt einfach immer breiter
-    /// zu werden.</summary>
+    /// <summary>Eine horizontal umbrechende Zeile aus Links mit begrenzter
+    /// Breite, damit sie tatsächlich mehrzeilig umbricht statt einfach immer
+    /// breiter zu werden.</summary>
     private FlowLayoutPanel BuildTileRow(IEnumerable<FileSystemInfo> entries, int widthPx)
     {
         var row = new FlowLayoutPanel
@@ -622,49 +623,39 @@ internal sealed class MainForm : Form
     };
 
     /// <summary>
-    /// Bewusst ohne Icon - nur Text, damit die Kachel flach bleibt und mehr
-    /// Einträge auf einen Blick reinpassen (Platzgründe). IconCache bleibt
-    /// im Code, falls Icons später wieder gewünscht sind.
+    /// Reiner Text-Link - kein Rahmen, keine Box, keine feste Größe. Blaue
+    /// Linkfarbe, Unterstreichung bei Hover, Breite passt sich dem Namen an
+    /// statt ihn abzuschneiden.
     /// </summary>
     private Control BuildTile(FileSystemInfo entry)
     {
         bool isFolder = entry is DirectoryInfo;
         string path = entry.FullName;
-        string label = MenuFs.DisplayName(entry.Name);
+        string label = MenuFs.DisplayName(entry.Name) + (isFolder ? " ▸" : "");
 
-        var tile = new Panel
-        {
-            Size = new Size(TileSize, TileHeight),
-            Margin = new Padding(TileGap / 2),
-            BackColor = TileColor,
-            Cursor = Cursors.Hand
-        };
-        tile.Paint += (_, e) =>
-        {
-            using var pen = new Pen(BorderColor);
-            e.Graphics.DrawRectangle(pen, 0, 0, tile.Width - 1, tile.Height - 1);
-        };
+        var regularFont = new Font("Segoe UI", 9f);
+        var underlineFont = new Font(regularFont, FontStyle.Underline);
 
-        var caption = new Label
+        var link = new Label
         {
             Text = label,
-            ForeColor = TextColor,
-            TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI", 8.5f),
-            Dock = DockStyle.Fill,
-            Padding = new Padding(6, 0, 6, 0),
-            AutoEllipsis = true
+            AutoSize = true,
+            ForeColor = LinkColor,
+            Font = regularFont,
+            Cursor = Cursors.Hand,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 4, 20, 4)
         };
 
-        tile.Controls.Add(caption);
+        link.MouseEnter += (_, _) => link.Font = underlineFont;
+        link.MouseLeave += (_, _) => link.Font = regularFont;
 
-        void OnMouseUp(object? _, MouseEventArgs e)
+        link.MouseUp += (_, e) =>
         {
-            // Wichtig: als ein einziger MouseUp-Handler statt Click+MouseUp -
-            // Control.Click feuert bei einer normalen Control (Panel/Label/
-            // PictureBox) für JEDE Maustaste, nicht nur links. Getrennte
-            // Handler hätten bei Rechtsklick sowohl den Bearbeiten-Dialog
-            // als auch das Öffnen ausgelöst.
+            // Wichtig: ein einziger MouseUp-Handler statt Click+MouseUp -
+            // Control.Click feuert bei einem Label für JEDE Maustaste, nicht
+            // nur links. Getrennte Handler hätten bei Rechtsklick sowohl den
+            // Bearbeiten-Dialog als auch das Öffnen ausgelöst.
             if (e.Button == MouseButtons.Left)
             {
                 if (isFolder)
@@ -687,12 +678,9 @@ internal sealed class MainForm : Form
                 EntryEditForm.Show(path, isFolder);
                 RefreshTiles();
             }
-        }
+        };
 
-        foreach (Control c in new Control[] { tile, caption })
-            c.MouseUp += OnMouseUp;
-
-        return tile;
+        return link;
     }
 }
 
