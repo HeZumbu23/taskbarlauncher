@@ -115,7 +115,7 @@ internal sealed class MainForm : Form
     private const uint VK_L = 0x4C;
     private const uint VK_Y = 0x59;
 
-    private const int TileSize = 96;
+    private const int TileSize = 170; // breit genug für die meisten Link-/Dateinamen ohne Abschneiden
     private const int TileHeight = 44; // flach statt quadratisch - kein Icon mehr, Platzgründe
     private const int TileGap = 10;
     private const int HeaderHeight = 40;
@@ -150,7 +150,7 @@ internal sealed class MainForm : Form
         StartPosition = FormStartPosition.CenterScreen;
         // Breit genug, damit zwei Kategorie-Spalten (siehe CategoryColumnWidth)
         // von Anfang an nebeneinander passen, statt erst durch Verbreitern.
-        ClientSize = new Size(980, 680);
+        ClientSize = new Size(1160, 680);
         MinimumSize = new Size(480, 360);
         BackColor = BackgroundColor;
         KeyPreview = true;
@@ -501,11 +501,11 @@ internal sealed class MainForm : Form
             : [new Section { Items = visible }];
     }
 
-    // Breite einer Kategorie-Karte: genug für ca. 4 Kacheln nebeneinander.
+    // Breite einer Kategorie-Karte: genug für ca. 3 Kacheln nebeneinander.
     // Passt das Fenster mehrere davon in der Breite, ordnet das native
     // Umbrechen des _flow-Panels (TopDown + WrapContents) sie automatisch
     // in so viele Spalten an, wie Platz da ist.
-    private const int CategoryColumnWidth = 460;
+    private const int CategoryColumnWidth = 550;
 
     /// <summary>
     /// Baut jede Kategorie als eine einzelne, in sich geschlossene Karte
