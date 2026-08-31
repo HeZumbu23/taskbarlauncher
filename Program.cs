@@ -192,10 +192,27 @@ internal sealed class MainForm : Form
         paste.FlatAppearance.BorderSize = 0;
         paste.Click += (_, _) => { ClipboardPaste.PasteInto(_currentFolder); RefreshTiles(); };
 
+        var openFolder = new Button
+        {
+            Text = "Ordner öffnen",
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = TextColor,
+            BackColor = HeaderColor,
+            Size = new Size(110, 30),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        openFolder.FlatAppearance.BorderSize = 0;
+        openFolder.Click += (_, _) => Launcher.Open(_currentFolder);
+
         header.Controls.Add(_back);
         header.Controls.Add(_pathLabel);
         header.Controls.Add(paste);
-        header.Resize += (_, _) => paste.Location = new Point(header.Width - paste.Width - 6, 5);
+        header.Controls.Add(openFolder);
+        header.Resize += (_, _) =>
+        {
+            paste.Location = new Point(header.Width - paste.Width - 6, 5);
+            openFolder.Location = new Point(paste.Left - openFolder.Width - 6, 5);
+        };
 
         // Bewusst kein AutoScroll: TopDown + WrapContents lässt das
         // FlowLayoutPanel stattdessen automatisch in eine neue Spalte

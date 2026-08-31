@@ -35,6 +35,7 @@ Just start typing while the window is focused — every keystroke filters the cu
 
 **✏️ Manage the menu from the window itself**
 - **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Einfügen" in the header, and a shortcut appears in the category you're currently viewing.
+- **"Ordner öffnen"** in the header opens the folder you're currently viewing directly in Explorer, for when clicking through the UI isn't enough.
 - **Right-click any tile or category header** to rename it, change its target (`.lnk`/`.url`), delete it, or move it up/down among its siblings.
 - Renaming/reordering never touches the visible name — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
 
