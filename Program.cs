@@ -67,13 +67,18 @@ internal static class Program
 
             Auch direkt aus dem Fenster heraus:
             - "Einfügen" (oben rechts) erstellt aus einer kopierten Datei/
-              einem kopierten Link eine neue Verknüpfung in der gerade
-              angezeigten Kategorie.
+              einem kopierten Link eine neue Verknüpfung - im Dialog wählt
+              man dafür sowohl die Ziel-Sektion als auch (bei Links) den
+              Namen aus.
             - Rechtsklick auf einen Eintrag oder eine Kategorie öffnet ihn
               zum Umbenennen, Ziel ändern, manuellen Einsortieren
               (Rauf/Runter) oder Löschen.
             - Tippen bei geöffnetem Fenster filtert live über die gerade
-              angezeigten Einträge, ganz ohne eigenes Suchfeld.
+              angezeigten Einträge, ganz ohne eigenes Suchfeld - passt der
+              Filter auf den Namen einer Kategorie/Sektion selbst, zeigt sie
+              gleich ihren ganzen Inhalt.
+            - "⟳ Neu laden" (oben rechts) oder die Taste F5 liest den
+              Menü-Ordner sofort neu ein, falls er von außen geändert wurde.
             - Kategorien sortieren sich automatisch nach Nutzung -
               meistgeöffnete zuerst.
 
@@ -190,7 +195,7 @@ internal sealed class MainForm : Form
             Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
         paste.FlatAppearance.BorderSize = 0;
-        paste.Click += (_, _) => { ClipboardPaste.PasteInto(_currentFolder); RefreshTiles(); };
+        paste.Click += (_, _) => { ClipboardPaste.PasteInto(_root, _currentFolder); RefreshTiles(); };
 
         var openFolder = new Button
         {
@@ -204,14 +209,28 @@ internal sealed class MainForm : Form
         openFolder.FlatAppearance.BorderSize = 0;
         openFolder.Click += (_, _) => Launcher.Open(_currentFolder);
 
+        var refresh = new Button
+        {
+            Text = "⟳ Neu laden",
+            FlatStyle = FlatStyle.Flat,
+            ForeColor = TextColor,
+            BackColor = HeaderColor,
+            Size = new Size(100, 30),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        refresh.FlatAppearance.BorderSize = 0;
+        refresh.Click += (_, _) => RefreshTiles();
+
         header.Controls.Add(_back);
         header.Controls.Add(_pathLabel);
         header.Controls.Add(paste);
         header.Controls.Add(openFolder);
+        header.Controls.Add(refresh);
         header.Resize += (_, _) =>
         {
             paste.Location = new Point(header.Width - paste.Width - 6, 5);
             openFolder.Location = new Point(paste.Left - openFolder.Width - 6, 5);
+            refresh.Location = new Point(openFolder.Left - refresh.Width - 6, 5);
         };
 
         // Bewusst kein AutoScroll: TopDown + WrapContents lässt das
@@ -264,6 +283,11 @@ internal sealed class MainForm : Form
             else if (e.KeyCode == Keys.Back && _filterQuery.Length > 0)
             {
                 _filterQuery = _filterQuery[..^1];
+                RefreshTiles();
+                e.Handled = true;
+            }
+            else if (e.KeyCode == Keys.F5)
+            {
                 RefreshTiles();
                 e.Handled = true;
             }
@@ -510,13 +534,31 @@ internal sealed class MainForm : Form
             return [new Section { Message = "Kein Zugriff." }];
         }
 
+        // Passt der Filter auf den Namen der aktuellen Sektion selbst oder
+        // einen ihrer übergeordneten Ordner (wie bei den Wurzel-Kategorien,
+        // wo ein Treffer auf den Kategorienamen den ganzen Inhalt zeigt),
+        // dann den ganzen Ordnerinhalt anzeigen statt nur einzeln passende
+        // Einträge - so findet man eine Sektion auch von tiefer drinnen.
+        bool sectionMatches = CurrentSectionMatches(folder);
+
         var visible = FilterVisible(entries)
-            .Where(e => Matches(MenuFs.DisplayName(e.Name)))
+            .Where(e => sectionMatches || Matches(MenuFs.DisplayName(e.Name)))
             .ToList();
 
         return visible.Count == 0
             ? [new Section { Message = _filterQuery.Length > 0 ? "Keine Treffer." : "Dieser Ordner ist leer." }]
             : [new Section { Items = visible }];
+    }
+
+    private bool CurrentSectionMatches(string folder)
+    {
+        for (string? dir = folder;
+             dir is not null && !string.Equals(dir, _root, StringComparison.OrdinalIgnoreCase);
+             dir = Path.GetDirectoryName(dir))
+        {
+            if (Matches(MenuFs.DisplayName(Path.GetFileName(dir)))) return true;
+        }
+        return false;
     }
 
     // Breite einer Kategorie-Karte: genug für ca. 3 Kacheln nebeneinander.
@@ -1050,21 +1092,26 @@ internal static class WindowFocus
 /// </summary>
 internal static class ClipboardPaste
 {
-    public static void PasteInto(string targetFolder)
+    /// <summary>root/currentFolder dienen nur als Vorauswahl für den
+    /// Sektions-Dialog (aktuell angezeigte Kategorie zuerst) - die
+    /// tatsächliche Zielsektion wählt der Nutzer dort explizit aus.</summary>
+    public static void PasteInto(string root, string currentFolder)
     {
         try
         {
-            Directory.CreateDirectory(targetFolder);
-
             if (Clipboard.ContainsFileDropList())
             {
-                var created = new List<string>();
-                foreach (string? path in Clipboard.GetFileDropList())
-                {
-                    if (string.IsNullOrWhiteSpace(path) || !(File.Exists(path) || Directory.Exists(path))) continue;
-                    created.Add(PasteFile(targetFolder, path));
-                }
-                Report(created);
+                var sourcePaths = Clipboard.GetFileDropList().Cast<string?>()
+                    .Where(p => !string.IsNullOrWhiteSpace(p) && (File.Exists(p) || Directory.Exists(p)))
+                    .Select(p => p!)
+                    .ToList();
+                if (sourcePaths.Count == 0) { ShowNothingToPaste(); return; }
+
+                var choice = PasteTargetForm.Ask(root, currentFolder, needsName: false);
+                if (choice is null) return; // abgebrochen
+
+                Directory.CreateDirectory(choice.Value.Folder);
+                Report(sourcePaths.Select(p => PasteFile(choice.Value.Folder, p)).ToList());
                 return;
             }
 
@@ -1077,10 +1124,11 @@ internal static class ClipboardPaste
                 {
                     string suggested = uri.Host.StartsWith("www.", StringComparison.OrdinalIgnoreCase)
                         ? uri.Host[4..] : uri.Host;
-                    string? name = NamePromptForm.Ask("Verknüpfung benennen", suggested);
-                    if (name is null) return; // abgebrochen
+                    var choice = PasteTargetForm.Ask(root, currentFolder, needsName: true, suggested);
+                    if (choice is null) return; // abgebrochen
 
-                    string path = UniquePath(targetFolder, name, ".url");
+                    Directory.CreateDirectory(choice.Value.Folder);
+                    string path = UniquePath(choice.Value.Folder, choice.Value.Name!, ".url");
                     File.WriteAllText(path, $"[InternetShortcut]\r\nURL={text}\r\n");
                     Report([path]);
                     return;
@@ -1088,14 +1136,16 @@ internal static class ClipboardPaste
 
                 if (File.Exists(text) || Directory.Exists(text))
                 {
-                    Report([PasteFile(targetFolder, text)]);
+                    var choice = PasteTargetForm.Ask(root, currentFolder, needsName: false);
+                    if (choice is null) return;
+
+                    Directory.CreateDirectory(choice.Value.Folder);
+                    Report([PasteFile(choice.Value.Folder, text)]);
                     return;
                 }
             }
 
-            MessageBox.Show(
-                "Die Zwischenablage enthält weder eine kopierte Datei/Verknüpfung noch einen Link.",
-                "Einfügen", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ShowNothingToPaste();
         }
         catch (Exception ex)
         {
@@ -1103,6 +1153,11 @@ internal static class ClipboardPaste
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
+
+    private static void ShowNothingToPaste() =>
+        MessageBox.Show(
+            "Die Zwischenablage enthält weder eine kopierte Datei/Verknüpfung noch einen Link.",
+            "Einfügen", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
     private static string PasteFile(string targetFolder, string sourcePath)
     {
@@ -1201,41 +1256,94 @@ internal static class ShortcutFactory
     }
 }
 
-/// <summary>Kompakter Eingabedialog, z. B. für den Namen einer neuen Verknüpfung.</summary>
-internal sealed class NamePromptForm : Form
+/// <summary>Dialog für "Einfügen": wählt die Ziel-Sektion (oberste Kategorie
+/// unter dem Menü-Wurzelordner, oder die oberste Ebene selbst) und - nur
+/// wenn nötig, z. B. für einen eingefügten Link - einen Namen dafür.</summary>
+internal sealed class PasteTargetForm : Form
 {
-    private readonly TextBox _textBox;
+    private readonly List<string> _sectionPaths;
+    private readonly ComboBox _sectionBox;
+    private readonly TextBox? _nameBox;
 
-    private NamePromptForm(string title, string defaultValue)
+    private PasteTargetForm(string root, string currentFolder, bool needsName, string? defaultName)
     {
-        Text = title;
+        Text = "Einfügen";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
         MinimizeBox = false;
         MaximizeBox = false;
         ShowInTaskbar = false;
         Font = new Font("Segoe UI", 10f);
-        ClientSize = new Size(360, 92);
 
-        var label = new Label { Text = "Name:", AutoSize = true, Location = new Point(12, 15) };
-        _textBox = new TextBox { Location = new Point(12, 35), Width = 336, Text = defaultValue };
+        var sections = new List<(string Display, string Path)> { ("(Oberste Ebene)", root) };
+        string? preselectPath = null;
 
-        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(192, 58), Width = 75 };
-        var cancel = new Button { Text = "Abbrechen", DialogResult = DialogResult.Cancel, Location = new Point(273, 58), Width = 75 };
+        try
+        {
+            string? currentTopName = null;
+            if (!string.Equals(currentFolder, root, StringComparison.OrdinalIgnoreCase))
+                currentTopName = Path.GetRelativePath(root, currentFolder).Split(Path.DirectorySeparatorChar)[0];
 
-        Controls.AddRange([label, _textBox, ok, cancel]);
+            foreach (var folder in MenuFs.GetOrderedEntries(root).OfType<DirectoryInfo>()
+                         .OrderByDescending(f => UsageStats.GetGroupTotal(root, f.FullName))
+                         .ThenBy(f => f.Name, StringComparer.CurrentCultureIgnoreCase))
+            {
+                sections.Add((MenuFs.DisplayName(folder.Name), folder.FullName));
+                if (currentTopName is not null && string.Equals(folder.Name, currentTopName, StringComparison.OrdinalIgnoreCase))
+                    preselectPath = folder.FullName;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Nur "(Oberste Ebene)" anbieten.
+        }
+
+        _sectionPaths = [.. sections.Select(s => s.Path)];
+
+        int y = 15;
+        Controls.Add(new Label { Text = "Sektion:", AutoSize = true, Location = new Point(12, y + 4) });
+        _sectionBox = new ComboBox
+        {
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Location = new Point(100, y),
+            Width = 248
+        };
+        _sectionBox.Items.AddRange([.. sections.Select(s => (object)s.Display)]);
+        _sectionBox.SelectedIndex = preselectPath is null ? 0 : Math.Max(0, _sectionPaths.IndexOf(preselectPath));
+        Controls.Add(_sectionBox);
+        y += 34;
+
+        if (needsName)
+        {
+            Controls.Add(new Label { Text = "Name:", AutoSize = true, Location = new Point(12, y + 4) });
+            _nameBox = new TextBox { Location = new Point(100, y), Width = 248, Text = defaultName ?? "" };
+            Controls.Add(_nameBox);
+            y += 34;
+        }
+
+        var ok = new Button { Text = "OK", DialogResult = DialogResult.OK, Location = new Point(180, y + 6), Width = 75 };
+        var cancel = new Button { Text = "Abbrechen", DialogResult = DialogResult.Cancel, Location = new Point(261, y + 6), Width = 87 };
+        Controls.Add(ok);
+        Controls.Add(cancel);
         AcceptButton = ok;
         CancelButton = cancel;
 
-        Shown += (_, _) => { _textBox.Focus(); _textBox.SelectAll(); };
+        ClientSize = new Size(360, y + 48);
+
+        Shown += (_, _) =>
+        {
+            if (_nameBox is not null) { _nameBox.Focus(); _nameBox.SelectAll(); }
+            else _sectionBox.Focus();
+        };
     }
 
-    public static string? Ask(string title, string defaultValue)
+    public static (string Folder, string? Name)? Ask(string root, string currentFolder, bool needsName, string? defaultName = null)
     {
-        using var form = new NamePromptForm(title, defaultValue);
-        return form.ShowDialog() == DialogResult.OK && !string.IsNullOrWhiteSpace(form._textBox.Text)
-            ? form._textBox.Text.Trim()
-            : null;
+        using var form = new PasteTargetForm(root, currentFolder, needsName, defaultName);
+        if (form.ShowDialog() != DialogResult.OK) return null;
+        if (needsName && string.IsNullOrWhiteSpace(form._nameBox!.Text)) return null;
+
+        return (form._sectionPaths[form._sectionBox.SelectedIndex], needsName ? form._nameBox!.Text.Trim() : null);
     }
 }
 

@@ -31,11 +31,12 @@ Subfolders become categories, `.lnk`/`.url` files become tiles, any other file o
 The top level is grouped and shown right away as plain text links under bold category headers, separated by thin dividers — no clicking into folders required just to see what's there. No icons, no boxes — just names, sized to fit however long they are, so nothing gets truncated. Deeper subfolders still drill in on click, with "Back" to go up. Categories are sorted by how often their contents get opened, most-used first — no setup, it just learns from usage over time. The window never scrolls: categories flow into as many side-by-side columns as fit the window's height, so a long list spreads sideways instead of requiring a scrollbar. Widen the window to reveal more columns at once.
 
 **🔎 Type to filter, no search box**
-Just start typing while the window is focused — every keystroke filters the currently visible tiles live, Windows-Start-Menu style. Backspace to edit, Escape to clear the filter (or minimize the window if the filter's already empty).
+Just start typing while the window is focused — every keystroke filters the currently visible tiles live, Windows-Start-Menu style. Backspace to edit, Escape to clear the filter (or minimize the window if the filter's already empty). Typing a category/section name (yours or any ancestor folder you're currently browsing under) reveals its whole contents, not just entries whose own name matches — handy for jumping straight to a whole section by name.
 
 **✏️ Manage the menu from the window itself**
-- **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Einfügen" in the header, and a shortcut appears in the category you're currently viewing.
+- **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Einfügen" in the header, and a dialog lets you pick which section the new shortcut goes into (defaulting to the one you're currently viewing) and, for pasted links, a name for it.
 - **"Ordner öffnen"** in the header opens the folder you're currently viewing directly in Explorer, for when clicking through the UI isn't enough.
+- **"⟳ Neu laden"** in the header (or the `F5` key) re-reads the menu folder immediately, for the rare case an external change doesn't already trigger a refresh on its own.
 - **Right-click any tile or category header** to rename it, change its target (`.lnk`/`.url`), delete it, or move it up/down among its siblings.
 - Renaming/reordering never touches the visible name — order is tracked with hidden numeric prefixes (`01 `, `02 `, …) that get normalized automatically the first time you reorder something.
 
