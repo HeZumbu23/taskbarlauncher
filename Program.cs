@@ -76,7 +76,8 @@ internal static class Program
             - Tippen bei geöffnetem Fenster filtert live über die gerade
               angezeigten Einträge, ganz ohne eigenes Suchfeld - passt der
               Filter auf den Namen einer Kategorie/Sektion selbst, zeigt sie
-              gleich ihren ganzen Inhalt.
+              gleich ihren ganzen Inhalt. Tab/Umschalt+Tab wandert durch die
+              sichtbaren Links, Enter öffnet den markierten - ganz ohne Maus.
             - "⟳ Neu laden" (oben rechts) oder die Taste F5 liest den
               Menü-Ordner sofort neu ein, falls er von außen geändert wurde.
             - Kategorien sortieren sich automatisch nach Nutzung -
@@ -133,6 +134,7 @@ internal sealed class MainForm : Form
     private static readonly Color TextColor = Color.FromArgb(32, 32, 32);
     private static readonly Color MutedTextColor = Color.FromArgb(96, 96, 100);
     private static readonly Color LinkColor = Color.FromArgb(0, 102, 204);
+    private static readonly Color SelectionColor = Color.FromArgb(214, 231, 253);
 
     private readonly EventWaitHandle _activateEvent;
     private readonly string _root = Program.MenuRoot;
@@ -141,6 +143,14 @@ internal sealed class MainForm : Form
     private readonly Button _back;
     private string _currentFolder;
     private string _filterQuery = "";
+
+    // Tab durchläuft die gerade sichtbaren Links (Reihenfolge = Baureihenfolge
+    // = optische Reihenfolge, da das Panel nie umsortiert), Enter öffnet den
+    // markierten. Wird bei jedem RenderSections()-Aufruf neu befüllt, die
+    // Auswahl also bewusst zurückgesetzt statt über einen Rebuild hinweg zu
+    // erhalten (die alten Controls werden ohnehin verworfen).
+    private readonly List<(Label Link, string Path, bool IsFolder)> _tiles = [];
+    private int _selectedIndex = -1;
 
     public MainForm(bool startedSilently, EventWaitHandle activateEvent)
     {
@@ -417,6 +427,67 @@ internal sealed class MainForm : Form
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
+    /// <summary>
+    /// Tab/Umschalt+Tab und Enter werden hier statt über die normale
+    /// Dialog-Tastatursteuerung abgefangen - Labels sind nicht fokussierbar,
+    /// und ein Windows-Startmenü-artiges "tippen, durchtabben, Enter öffnet"
+    /// soll unabhängig davon funktionieren, welches (falls überhaupt ein)
+    /// Steuerelement gerade den Fokus hat.
+    /// </summary>
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.Tab) { MoveSelection(1); return true; }
+        if (keyData == (Keys.Tab | Keys.Shift)) { MoveSelection(-1); return true; }
+        if (keyData == Keys.Enter) { ActivateSelection(); return true; }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void MoveSelection(int direction)
+    {
+        if (_tiles.Count == 0) return;
+
+        int newIndex = _selectedIndex < 0
+            ? (direction > 0 ? 0 : _tiles.Count - 1)
+            : (_selectedIndex + direction + _tiles.Count) % _tiles.Count;
+        SetSelectedIndex(newIndex);
+    }
+
+    private void SetSelectedIndex(int index)
+    {
+        if (_selectedIndex >= 0 && _selectedIndex < _tiles.Count)
+            _tiles[_selectedIndex].Link.BackColor = Color.Transparent;
+
+        _selectedIndex = index;
+
+        if (_selectedIndex >= 0 && _selectedIndex < _tiles.Count)
+            _tiles[_selectedIndex].Link.BackColor = SelectionColor;
+    }
+
+    private void ActivateSelection()
+    {
+        if (_selectedIndex < 0 || _selectedIndex >= _tiles.Count) return;
+        var tile = _tiles[_selectedIndex];
+        ActivateEntry(tile.Path, tile.IsFolder);
+    }
+
+    private void ActivateEntry(string path, bool isFolder)
+    {
+        if (isFolder)
+        {
+            _currentFolder = path;
+            _filterQuery = "";
+            RefreshTiles();
+        }
+        else
+        {
+            // Nur minimieren, nicht schließen - MainForm ist das
+            // Hauptfenster der Anwendung, Close() würde die App beenden.
+            WindowState = FormWindowState.Minimized;
+            UsageStats.RecordOpen(_root, path);
+            Launcher.Open(path);
+        }
+    }
+
     private void NavigateUp()
     {
         if (string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase)) return;
@@ -582,6 +653,11 @@ internal sealed class MainForm : Form
         _flow.Controls.Clear();
         foreach (Control c in oldControls) c.Dispose();
 
+        // Alte Kachel-Referenzen sind jetzt disposte Controls - Auswahl und
+        // Tab-Liste werden beim Neuaufbau unten wieder befüllt.
+        _tiles.Clear();
+        _selectedIndex = -1;
+
         int columnWidth = Math.Min(CategoryColumnWidth,
             Math.Max(MinColumnWidth, _flow.ClientSize.Width - TileGap * 2));
 
@@ -715,20 +791,7 @@ internal sealed class MainForm : Form
             // Bearbeiten-Dialog als auch das Öffnen ausgelöst.
             if (e.Button == MouseButtons.Left)
             {
-                if (isFolder)
-                {
-                    _currentFolder = path;
-                    _filterQuery = "";
-                    RefreshTiles();
-                }
-                else
-                {
-                    // Nur minimieren, nicht schließen - MainForm ist das
-                    // Hauptfenster der Anwendung, Close() würde die App beenden.
-                    WindowState = FormWindowState.Minimized;
-                    UsageStats.RecordOpen(_root, path);
-                    Launcher.Open(path);
-                }
+                ActivateEntry(path, isFolder);
             }
             else if (e.Button == MouseButtons.Right)
             {
@@ -736,6 +799,8 @@ internal sealed class MainForm : Form
                 RefreshTiles();
             }
         };
+
+        _tiles.Add((link, path, isFolder));
 
         return link;
     }

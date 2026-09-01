@@ -31,7 +31,7 @@ Subfolders become categories, `.lnk`/`.url` files become tiles, any other file o
 The top level is grouped and shown right away as plain text links under bold category headers, separated by thin dividers — no clicking into folders required just to see what's there. No icons, no boxes — just names, sized to fit however long they are, so nothing gets truncated. Deeper subfolders still drill in on click, with "Back" to go up. Categories are sorted by how often their contents get opened, most-used first — no setup, it just learns from usage over time. The window never scrolls: categories flow into as many side-by-side columns as fit the window's height, so a long list spreads sideways instead of requiring a scrollbar. Widen the window to reveal more columns at once.
 
 **🔎 Type to filter, no search box**
-Just start typing while the window is focused — every keystroke filters the currently visible tiles live, Windows-Start-Menu style. Backspace to edit, Escape to clear the filter (or minimize the window if the filter's already empty). Typing a category/section name (yours or any ancestor folder you're currently browsing under) reveals its whole contents, not just entries whose own name matches — handy for jumping straight to a whole section by name.
+Just start typing while the window is focused — every keystroke filters the currently visible tiles live, Windows-Start-Menu style. Backspace to edit, Escape to clear the filter (or minimize the window if the filter's already empty). Typing a category/section name (yours or any ancestor folder you're currently browsing under) reveals its whole contents, not just entries whose own name matches — handy for jumping straight to a whole section by name. `Tab`/`Shift+Tab` cycle the highlight through whatever's currently visible, `Enter` opens (or drills into) the highlighted one — fully keyboard-driven, no mouse needed.
 
 **✏️ Manage the menu from the window itself**
 - **Paste from clipboard** — copy a file/folder in Explorer (or a URL), click "Einfügen" in the header, and a dialog lets you pick which section the new shortcut goes into (defaulting to the one you're currently viewing) and, for pasted links, a name for it.
@@ -108,6 +108,9 @@ TaskbarLauncher creates `%AppData%\TaskbarLauncher\Menue` on first run. Populate
 |---|---|
 | `Win+Alt+L` | Bring the window to front, unchanged (wherever you left it) |
 | `Win+Alt+Y` | Bring the window to front, back at the top level, filter cleared — ready to type |
+| `Tab` / `Shift+Tab` | Move the highlight to the next/previous visible link |
+| `Enter` | Open (or drill into) the currently highlighted link |
+| `F5` | Re-read the menu folder immediately |
 | *(taskbar click)* | Restore/activate the window, standard Windows behavior |
 
 Both were chosen because Windows reserves very few Win+Alt combinations (mostly Xbox Game Bar shortcuts and `Win+Alt+D` for the date/time flyout) — both are free and easy to remember ("Launcher", "You searching?"). Change them in `Program.cs` (`VK_L`/`VK_Y`, `MOD_WIN`/`MOD_ALT`) if they ever collide with something else on your system.
