@@ -28,6 +28,10 @@ function Write-Step([string]$Text) {
     Write-Host "==> $Text" -ForegroundColor Cyan
 }
 
+function Write-Command([string]$Text) {
+    Write-Host "  `$ $Text" -ForegroundColor DarkGray
+}
+
 function Invoke-Deploy {
     Write-Step "Stopping running instance (if any)"
     $proc = Get-Process -Name "TaskbarLauncher" -ErrorAction SilentlyContinue
@@ -43,13 +47,15 @@ function Invoke-Deploy {
         Write-Host "No running instance found."
     }
 
-    Write-Step "Pulling latest changes (git pull)"
+    Write-Step "Pulling latest changes"
+    Write-Command "git pull"
     git pull
     if ($LASTEXITCODE -ne 0) {
         throw "git pull failed (exit code $LASTEXITCODE)."
     }
 
-    Write-Step "Building Release (dotnet publish)"
+    Write-Step "Building Release"
+    Write-Command "dotnet publish -c Release"
     dotnet publish -c Release
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed (exit code $LASTEXITCODE)."
@@ -61,6 +67,7 @@ function Invoke-Deploy {
     }
 
     Write-Step "Starting TaskbarLauncher"
+    Write-Command "Start-Process -FilePath `"$exePath`""
     Start-Process -FilePath $exePath
 
     Write-Host ""
@@ -76,17 +83,21 @@ if ($Once) {
 # Commit - sonst läuft nach dem Start erstmal keine (aktuelle) Version.
 Invoke-Deploy
 
+Write-Command "git rev-parse --abbrev-ref HEAD"
 $branch = (git rev-parse --abbrev-ref HEAD).Trim()
 Write-Host ""
 Write-Host "Watching for new commits every $IntervalSeconds s. Press Ctrl+C to stop." -ForegroundColor Yellow
 
 while ($true) {
+    Write-Command "git fetch origin $branch --quiet"
     git fetch origin $branch --quiet
     if ($LASTEXITCODE -ne 0) {
         Write-Host "git fetch failed (exit code $LASTEXITCODE) - will retry next interval." -ForegroundColor Red
     }
     else {
+        Write-Command "git rev-parse HEAD"
         $localHash = (git rev-parse HEAD).Trim()
+        Write-Command "git rev-parse origin/$branch"
         $remoteHash = (git rev-parse "origin/$branch").Trim()
 
         if ($localHash -ne $remoteHash) {
