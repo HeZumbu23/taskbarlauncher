@@ -76,10 +76,11 @@ internal static class Program
             - Tippen bei geöffnetem Fenster filtert live über die gerade
               angezeigten Einträge, ganz ohne eigenes Suchfeld - mehrere
               per Leerzeichen getrennte Wörter finden Treffer unabhängig
-              von ihrer Reihenfolge. Passt der Filter auf den Namen einer
+              von ihrer Reihenfolge, die passenden Teilstrings werden fett
+              hervorgehoben. Passt der Filter auf den Namen einer
               Kategorie/Sektion selbst, zeigt sie gleich ihren ganzen
-              Inhalt. Tab/Umschalt+Tab wandert durch die sichtbaren Links,
-              Enter öffnet den markierten - ganz ohne Maus.
+              Inhalt. Tab/Umschalt+Tab (oder Hovern mit der Maus) wandert
+              durch die sichtbaren Links, Enter öffnet den markierten.
             - "⟳ Neu laden" (oben rechts) oder die Taste F5 liest den
               Menü-Ordner sofort neu ein, falls er von außen geändert wurde.
             - Kategorien sortieren sich automatisch nach Nutzung -
@@ -515,6 +516,44 @@ internal sealed class MainForm : Form
         return true;
     }
 
+    /// <summary>Zerlegt einen Anzeigenamen anhand der Filterwörter in
+    /// zusammenhängende Abschnitte, jeweils mit einem Flag, ob er zu einem
+    /// Treffer gehört (für die Fett-Hervorhebung in BuildTile). Ohne
+    /// aktiven Filter kommt der ganze Name unmarkiert als ein Abschnitt
+    /// zurück.</summary>
+    private static List<(string Text, bool IsMatch)> SplitHighlighted(string text, string filterQuery)
+    {
+        var tokens = filterQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (tokens.Length == 0 || text.Length == 0) return [(text, false)];
+
+        var matched = new bool[text.Length];
+        foreach (var token in tokens)
+        {
+            if (token.Length == 0 || token.Length > text.Length) continue;
+
+            int searchFrom = 0;
+            int hit;
+            while (searchFrom <= text.Length - token.Length &&
+                   (hit = text.IndexOf(token, searchFrom, StringComparison.OrdinalIgnoreCase)) >= 0)
+            {
+                for (int i = hit; i < hit + token.Length; i++) matched[i] = true;
+                searchFrom = hit + 1; // erlaubt sich überlappende Treffer
+            }
+        }
+
+        var runs = new List<(string Text, bool IsMatch)>();
+        int runStart = 0;
+        for (int i = 1; i <= text.Length; i++)
+        {
+            if (i == text.Length || matched[i] != matched[runStart])
+            {
+                runs.Add((text[runStart..i], matched[runStart]));
+                runStart = i;
+            }
+        }
+        return runs;
+    }
+
     /// <summary>Ein Abschnitt im Raster: entweder eine Kategorie (mit
     /// Kopfzeile, nur auf der Wurzelebene) oder die lose Datei-/Ordnerliste
     /// einer einzelnen Ebene. Message statt Items zeigt nur einen
@@ -772,10 +811,13 @@ internal sealed class MainForm : Form
     /// <summary>
     /// Reiner Text-Link mit kleinem Icon davor - kein Rahmen, keine Box,
     /// keine feste Größe. Das Icon orientiert sich an der Zeilenhöhe der
-    /// Schrift (nicht die früheren großen Kacheln-Icons). Ein LinkLabel
-    /// statt eines Labels übernimmt das Hover-Unterstreichen nativ - beim
-    /// alten manuellen Font-Tausch auf MouseEnter/Leave wechselte dabei
-    /// gelegentlich sichtbar die Schriftgröße.
+    /// Schrift (nicht die früheren großen Kacheln-Icons). Bei aktivem
+    /// Filter werden die passenden Teilstrings fett hervorgehoben - dafür
+    /// besteht der Text aus mehreren nahtlos aneinandergereihten Labels
+    /// (fett/normal) statt einem einzigen. Hovern markiert die ganze Zeile
+    /// über dieselbe Hintergrundfarbe wie die Tab-Auswahl, statt den Font
+    /// zu ändern - ein früherer manueller Font-Tausch auf Hover ließ dabei
+    /// gelegentlich sichtbar die Schriftgröße springen.
     /// </summary>
     private Control BuildTile(FileSystemInfo entry)
     {
@@ -783,8 +825,9 @@ internal sealed class MainForm : Form
         string path = entry.FullName;
         string label = MenuFs.DisplayName(entry.Name) + (isFolder ? " ▸" : "");
 
-        var font = new Font("Segoe UI", 9f);
-        int iconSize = font.Height + 2; // an der Zeilenhöhe orientiert, nur minimal größer
+        var regularFont = new Font("Segoe UI", 9f);
+        var boldFont = new Font(regularFont, FontStyle.Bold);
+        int iconSize = regularFont.Height + 2; // an der Zeilenhöhe orientiert, nur minimal größer
 
         var row = new FlowLayoutPanel
         {
@@ -797,26 +840,12 @@ internal sealed class MainForm : Form
             Cursor = Cursors.Hand
         };
 
-        var text = new LinkLabel
-        {
-            Text = label,
-            AutoSize = true,
-            Font = font,
-            LinkColor = LinkColor,
-            ActiveLinkColor = LinkColor,
-            VisitedLinkColor = LinkColor,
-            LinkBehavior = LinkBehavior.HoverUnderline,
-            BackColor = Color.Transparent,
-            Margin = new Padding(0),
-            Cursor = Cursors.Hand
-        };
-
         // Wichtig: ein einziger MouseUp-Handler statt Click+MouseUp -
         // Control.Click feuert bei diesen Steuerelementen für JEDE
         // Maustaste, nicht nur links. Getrennte Handler hätten bei
         // Rechtsklick sowohl den Bearbeiten-Dialog als auch das Öffnen
-        // ausgelöst. Auf Icon, Text und Zeile registriert, damit ein Klick
-        // überall in der Zeile trifft, nicht nur exakt auf den Text.
+        // ausgelöst. Auf Icon, jedem Text-Segment und der Zeile selbst
+        // registriert, damit ein Klick überall in der Zeile trifft.
         void HandleMouseUp(object? _, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left)
@@ -829,6 +858,15 @@ internal sealed class MainForm : Form
                 RefreshTiles();
             }
         }
+
+        // Hovern über irgendeinen Teil der Zeile markiert sie als
+        // "ausgewählt" - dieselbe Markierung wie bei Tab/Enter, damit Maus
+        // und Tastatur denselben Zustand teilen statt zweier getrennter
+        // Hervorhebungen. Auf jedes Teil-Control einzeln registriert, da
+        // MouseEnter/Leave beim Wechsel zwischen Kind-Controls sonst
+        // flackern würde (jedes hat sein eigenes Fenster-Handle).
+        int myIndex = _tiles.Count;
+        void HandleMouseEnter(object? _, EventArgs e) => SetSelectedIndex(myIndex);
 
         var iconImage = IconCache.Get(path);
         if (iconImage is not null)
@@ -843,12 +881,30 @@ internal sealed class MainForm : Form
                 Margin = new Padding(0, 0, 4, 0)
             };
             icon.MouseUp += HandleMouseUp;
+            icon.MouseEnter += HandleMouseEnter;
             row.Controls.Add(icon);
         }
 
-        text.MouseUp += HandleMouseUp;
+        foreach (var (part, isMatch) in SplitHighlighted(label, _filterQuery))
+        {
+            var segment = new Label
+            {
+                Text = part,
+                AutoSize = true,
+                ForeColor = LinkColor,
+                Font = isMatch ? boldFont : regularFont,
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand,
+                Margin = Padding.Empty,
+                Padding = Padding.Empty
+            };
+            segment.MouseUp += HandleMouseUp;
+            segment.MouseEnter += HandleMouseEnter;
+            row.Controls.Add(segment);
+        }
+
         row.MouseUp += HandleMouseUp;
-        row.Controls.Add(text);
+        row.MouseEnter += HandleMouseEnter;
 
         _tiles.Add((row, path, isFolder));
 
