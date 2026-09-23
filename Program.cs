@@ -74,10 +74,12 @@ internal static class Program
               zum Umbenennen, Ziel ändern, manuellen Einsortieren
               (Rauf/Runter) oder Löschen.
             - Tippen bei geöffnetem Fenster filtert live über die gerade
-              angezeigten Einträge, ganz ohne eigenes Suchfeld - passt der
-              Filter auf den Namen einer Kategorie/Sektion selbst, zeigt sie
-              gleich ihren ganzen Inhalt. Tab/Umschalt+Tab wandert durch die
-              sichtbaren Links, Enter öffnet den markierten - ganz ohne Maus.
+              angezeigten Einträge, ganz ohne eigenes Suchfeld - mehrere
+              per Leerzeichen getrennte Wörter finden Treffer unabhängig
+              von ihrer Reihenfolge. Passt der Filter auf den Namen einer
+              Kategorie/Sektion selbst, zeigt sie gleich ihren ganzen
+              Inhalt. Tab/Umschalt+Tab wandert durch die sichtbaren Links,
+              Enter öffnet den markierten - ganz ohne Maus.
             - "⟳ Neu laden" (oben rechts) oder die Taste F5 liest den
               Menü-Ordner sofort neu ein, falls er von außen geändert wurde.
             - Kategorien sortieren sich automatisch nach Nutzung -
@@ -148,8 +150,9 @@ internal sealed class MainForm : Form
     // = optische Reihenfolge, da das Panel nie umsortiert), Enter öffnet den
     // markierten. Wird bei jedem RenderSections()-Aufruf neu befüllt, die
     // Auswahl also bewusst zurückgesetzt statt über einen Rebuild hinweg zu
-    // erhalten (die alten Controls werden ohnehin verworfen).
-    private readonly List<(Label Link, string Path, bool IsFolder)> _tiles = [];
+    // erhalten (die alten Controls werden ohnehin verworfen). Link ist die
+    // ganze Icon+Text-Zeile (für die Auswahl-Hervorhebung), nicht nur das Label.
+    private readonly List<(Control Link, string Path, bool IsFolder)> _tiles = [];
     private int _selectedIndex = -1;
 
     public MainForm(bool startedSilently, EventWaitHandle activateEvent)
@@ -498,8 +501,19 @@ internal sealed class MainForm : Form
 
     private bool IsAtRoot => string.Equals(_currentFolder, _root, StringComparison.OrdinalIgnoreCase);
 
-    private bool Matches(string name) =>
-        _filterQuery.Length == 0 || name.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase);
+    /// <summary>Jedes durch Leerzeichen getrennte Wort im Filter muss
+    /// irgendwo im Namen vorkommen, unabhängig von der Reihenfolge - "def
+    /// abc" findet z. B. auch "abc def xyz".</summary>
+    private bool Matches(string name)
+    {
+        if (_filterQuery.Length == 0) return true;
+
+        foreach (var token in _filterQuery.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!name.Contains(token, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        return true;
+    }
 
     /// <summary>Ein Abschnitt im Raster: entweder eine Kategorie (mit
     /// Kopfzeile, nur auf der Wurzelebene) oder die lose Datei-/Ordnerliste
@@ -756,9 +770,12 @@ internal sealed class MainForm : Form
     };
 
     /// <summary>
-    /// Reiner Text-Link - kein Rahmen, keine Box, keine feste Größe. Blaue
-    /// Linkfarbe, Unterstreichung bei Hover, Breite passt sich dem Namen an
-    /// statt ihn abzuschneiden.
+    /// Reiner Text-Link mit kleinem Icon davor - kein Rahmen, keine Box,
+    /// keine feste Größe. Das Icon orientiert sich an der Zeilenhöhe der
+    /// Schrift (nicht die früheren großen Kacheln-Icons). Ein LinkLabel
+    /// statt eines Labels übernimmt das Hover-Unterstreichen nativ - beim
+    /// alten manuellen Font-Tausch auf MouseEnter/Leave wechselte dabei
+    /// gelegentlich sichtbar die Schriftgröße.
     /// </summary>
     private Control BuildTile(FileSystemInfo entry)
     {
@@ -766,29 +783,42 @@ internal sealed class MainForm : Form
         string path = entry.FullName;
         string label = MenuFs.DisplayName(entry.Name) + (isFolder ? " ▸" : "");
 
-        var regularFont = new Font("Segoe UI", 9f);
-        var underlineFont = new Font(regularFont, FontStyle.Underline);
+        var font = new Font("Segoe UI", 9f);
+        int iconSize = font.Height + 2; // an der Zeilenhöhe orientiert, nur minimal größer
 
-        var link = new Label
+        var row = new FlowLayoutPanel
+        {
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            BackColor = Color.Transparent,
+            Margin = new Padding(0, 3, 0, 3),
+            Cursor = Cursors.Hand
+        };
+
+        var text = new LinkLabel
         {
             Text = label,
             AutoSize = true,
-            ForeColor = LinkColor,
-            Font = regularFont,
-            Cursor = Cursors.Hand,
+            Font = font,
+            LinkColor = LinkColor,
+            ActiveLinkColor = LinkColor,
+            VisitedLinkColor = LinkColor,
+            LinkBehavior = LinkBehavior.HoverUnderline,
             BackColor = Color.Transparent,
-            Margin = new Padding(0, 3, 0, 3)
+            Margin = new Padding(0),
+            Cursor = Cursors.Hand
         };
 
-        link.MouseEnter += (_, _) => link.Font = underlineFont;
-        link.MouseLeave += (_, _) => link.Font = regularFont;
-
-        link.MouseUp += (_, e) =>
+        // Wichtig: ein einziger MouseUp-Handler statt Click+MouseUp -
+        // Control.Click feuert bei diesen Steuerelementen für JEDE
+        // Maustaste, nicht nur links. Getrennte Handler hätten bei
+        // Rechtsklick sowohl den Bearbeiten-Dialog als auch das Öffnen
+        // ausgelöst. Auf Icon, Text und Zeile registriert, damit ein Klick
+        // überall in der Zeile trifft, nicht nur exakt auf den Text.
+        void HandleMouseUp(object? _, MouseEventArgs e)
         {
-            // Wichtig: ein einziger MouseUp-Handler statt Click+MouseUp -
-            // Control.Click feuert bei einem Label für JEDE Maustaste, nicht
-            // nur links. Getrennte Handler hätten bei Rechtsklick sowohl den
-            // Bearbeiten-Dialog als auch das Öffnen ausgelöst.
             if (e.Button == MouseButtons.Left)
             {
                 ActivateEntry(path, isFolder);
@@ -798,11 +828,31 @@ internal sealed class MainForm : Form
                 EntryEditForm.Show(path, isFolder);
                 RefreshTiles();
             }
-        };
+        }
 
-        _tiles.Add((link, path, isFolder));
+        var iconImage = IconCache.Get(path);
+        if (iconImage is not null)
+        {
+            var icon = new PictureBox
+            {
+                Image = iconImage,
+                Size = new Size(iconSize, iconSize),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand,
+                Margin = new Padding(0, 0, 4, 0)
+            };
+            icon.MouseUp += HandleMouseUp;
+            row.Controls.Add(icon);
+        }
 
-        return link;
+        text.MouseUp += HandleMouseUp;
+        row.MouseUp += HandleMouseUp;
+        row.Controls.Add(text);
+
+        _tiles.Add((row, path, isFolder));
+
+        return row;
     }
 }
 
@@ -1641,7 +1691,7 @@ internal static class IconCache
         try
         {
             var res = SHGetFileInfo(path, 0, ref info, (uint)Marshal.SizeOf<SHFILEINFO>(),
-                                    SHGFI_ICON | SHGFI_LARGEICON);
+                                    SHGFI_ICON | SHGFI_SMALLICON);
             if (res == IntPtr.Zero || info.hIcon == IntPtr.Zero) return null;
 
             using var icon = Icon.FromHandle(info.hIcon);
@@ -1658,7 +1708,7 @@ internal static class IconCache
     }
 
     private const uint SHGFI_ICON = 0x000000100;
-    private const uint SHGFI_LARGEICON = 0x000000000;
+    private const uint SHGFI_SMALLICON = 0x000000001;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct SHFILEINFO
