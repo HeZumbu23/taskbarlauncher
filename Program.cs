@@ -79,8 +79,9 @@ internal static class Program
               von ihrer Reihenfolge, die passenden Teilstrings werden fett
               hervorgehoben. Passt der Filter auf den Namen einer
               Kategorie/Sektion selbst, zeigt sie gleich ihren ganzen
-              Inhalt. Tab/Umschalt+Tab (oder Hovern mit der Maus) wandert
-              durch die sichtbaren Links, Enter öffnet den markierten.
+              Inhalt. Enter öffnet sofort den obersten Treffer, ganz ohne
+              vorheriges Antabben; Tab/Umschalt+Tab (oder Hovern mit der
+              Maus) wechselt zu einem anderen sichtbaren Link.
             - "⟳ Neu laden" (oben rechts) oder die Taste F5 liest den
               Menü-Ordner sofort neu ein, falls er von außen geändert wurde.
             - Kategorien sortieren sich automatisch nach Nutzung -
@@ -467,10 +468,14 @@ internal sealed class MainForm : Form
             _tiles[_selectedIndex].Link.BackColor = SelectionColor;
     }
 
+    /// <summary>Ohne vorherige Tab-Navigation (kein markierter Eintrag)
+    /// öffnet Enter den obersten sichtbaren Eintrag - beim Windows-Startmenü
+    /// verhält sich Enter nach dem Tippen genauso.</summary>
     private void ActivateSelection()
     {
-        if (_selectedIndex < 0 || _selectedIndex >= _tiles.Count) return;
-        var tile = _tiles[_selectedIndex];
+        if (_tiles.Count == 0) return;
+        int index = _selectedIndex >= 0 && _selectedIndex < _tiles.Count ? _selectedIndex : 0;
+        var tile = _tiles[index];
         ActivateEntry(tile.Path, tile.IsFolder);
     }
 
